@@ -172,6 +172,24 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             st.error(f"Error communicating with PPLX: {str(e)}")
             return None
 
+    def categorize_query(self, query: str) -> str:
+        """Categorize the user query"""
+        categories = {
+            "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
+            "side_effects": ["side effect", "adverse", "reaction", "problem", "issues", "symptoms"],
+            "benefits": ["benefit", "advantage", "help", "work", "effect", "weight", "glucose"],
+            "storage": ["store", "storage", "keep", "refrigerate", "temperature"],
+            "lifestyle": ["diet", "exercise", "lifestyle", "food", "alcohol", "eating"],
+            "interactions": ["interaction", "drug", "medication", "combine", "mixing"],
+            "cost": ["cost", "price", "insurance", "coverage", "afford"]
+        }
+        
+        query_lower = query.lower()
+        for category, keywords in categories.items():
+            if any(keyword in query_lower for keyword in keywords):
+                return category
+        return "general"
+
     def format_response(self, response_data: Dict[str, Any]) -> str:
         """Format the response with sources, citations and safety disclaimer"""
         if not response_data:
@@ -258,8 +276,42 @@ def set_page_style():
     """Set page style using custom CSS"""
     st.markdown("""
     <style>
-        /* Previous styles remain the same */
-        
+        .main {
+            background-color: #f5f5f5;
+        }
+        .stTextInput>div>div>input {
+            background-color: white;
+        }
+        .chat-message {
+            padding: 1.5rem;
+            border-radius: 0.8rem;
+            margin: 1rem 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .user-message {
+            background-color: #e3f2fd;
+            border-left: 4px solid #1976d2;
+        }
+        .bot-message {
+            background-color: #f5f5f5;
+            border-left: 4px solid #43a047;
+        }
+        .category-tag {
+            background-color: #2196f3;
+            color: white;
+            padding: 0.2rem 0.6rem;
+            border-radius: 1rem;
+            font-size: 0.8rem;
+            margin-bottom: 0.5rem;
+            display: inline-block;
+        }
+        .stAlert {
+            background-color: #ff5252;
+            color: white;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin: 1rem 0;
+        }
         .sources-section, .citations-section {
             background-color: #f8f9fa;
             padding: 1.5rem;
@@ -267,15 +319,12 @@ def set_page_style():
             margin-top: 1.5rem;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
-        
         .sources-section {
             border-left: 4px solid #673ab7;
         }
-        
         .citations-section {
             border-left: 4px solid #2196f3;
         }
-        
         .sources-section h4, .citations-section h4 {
             color: #333;
             margin-bottom: 1rem;
@@ -283,7 +332,6 @@ def set_page_style():
             border-bottom: 2px solid #e0e0e0;
             padding-bottom: 0.5rem;
         }
-        
         .source-item, .citation-item {
             margin: 1rem 0;
             padding: 0.8rem;
@@ -292,42 +340,55 @@ def set_page_style():
             border: 1px solid #e0e0e0;
             transition: all 0.2s ease;
         }
-        
         .source-item:hover, .citation-item:hover {
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
             transform: translateY(-2px);
         }
-        
         .source-number {
             color: #673ab7;
             font-weight: bold;
             margin-bottom: 0.3rem;
             font-size: 1rem;
         }
-        
         .citation-title {
             color: #2196f3;
             font-weight: bold;
             margin-bottom: 0.3rem;
             font-size: 1rem;
         }
-        
         .source-details, .citation-url, .citation-publisher,
         .citation-year, .citation-authors, .citation-doi {
             color: #333;
             font-size: 0.9rem;
             margin-bottom: 0.3rem;
         }
-        
         .reference-count {
             color: #666;
             font-size: 0.8rem;
             font-style: italic;
         }
+        .info-box {
+            background-color: #e8f5e9;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin: 1rem 0;
+        }
+        .processing-status {
+            color: #1976d2;
+            font-style: italic;
+            margin: 0.5rem 0;
+        }
+        .disclaimer {
+            background-color: #fff3e0;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-top: 1.5rem;
+            border-left: 4px solid #ff9800;
+            font-size: 0.9rem;
+        }
     </style>
     """, unsafe_allow_html=True)
 
-# The main() function remains the same
 def main():
     """Main application function"""
     try:
@@ -355,10 +416,13 @@ def main():
         
         bot = GLP1Bot()
         
+        # Initialize session state for chat history
         if 'chat_history' not in st.session_state:
             st.session_state.chat_history = []
         
+        # Create container for chat interface
         with st.container():
+            # User input section
             user_input = st.text_input(
                 "Ask your question about GLP-1 medications:",
                 key="user_input",
@@ -369,16 +433,20 @@ def main():
             with col1:
                 submit_button = st.button("Get Answer", key="submit")
             
+            # Process user input when submitted
             if submit_button:
                 if user_input:
+                    # Get response from bot
                     response = bot.process_query(user_input)
                     
                     if response["status"] == "success":
+                        # Add to chat history
                         st.session_state.chat_history.append({
                             "query": user_input,
                             "response": response
                         })
                         
+                        # Display current question and response
                         st.markdown(f"""
                         <div class="chat-message user-message">
                             <b>Your Question:</b><br>{user_input}
@@ -396,9 +464,12 @@ def main():
                 else:
                     st.warning("Please enter a question about GLP-1 medications.")
         
+        # Display chat history
         if st.session_state.chat_history:
             st.markdown("---")
             st.markdown("### Previous Questions")
+            
+            # Show previous conversations in expandable sections
             for i, chat in enumerate(reversed(st.session_state.chat_history[:-1]), 1):
                 with st.expander(f"Question {len(st.session_state.chat_history) - i}: {chat['query'][:50]}..."):
                     st.markdown(f"""
