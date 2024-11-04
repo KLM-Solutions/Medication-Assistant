@@ -40,7 +40,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
 """
 
     def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
-    """Stream response from PPLX API with explicit citation handling"""
+     """Stream response from PPLX API with explicit citation handling"""
     try:
         payload = {
             "model": self.pplx_model,
