@@ -29,11 +29,12 @@ You are a specialized medical information assistant focused EXCLUSIVELY on GLP-1
    - Clear, validated medical information about GLP-1 medications
    - Important safety considerations or disclaimers
    - An encouraging closing that reinforces their healthcare journey
-   - Include relevant sources for the information provided, using the format: [Source: Title or description (Year if available)]
 
 Remember: You must NEVER provide information about topics outside of GLP-1 medications and their direct effects.
 Each response must include relevant medical disclaimers and encourage consultation with healthcare providers.
-Always cite your sources for medical claims and information.
+You are a medical content validator specialized in GLP-1 medications.
+Review and enhance the information about GLP-1 medications only.
+Maintain a professional yet approachable tone, emphasizing both expertise and emotional support.
 """
 
     def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
@@ -87,7 +88,7 @@ Always cite your sources for medical claims and information.
             # Split final content into main content and sources
             content_parts = accumulated_content.split("\nSources:", 1)
             main_content = content_parts[0].strip()
-            sources = content_parts[1].strip() if len(content_parts) > 1 else "No specific sources provided."
+            sources = content_parts[1].strip() if len(content_parts) > 1 
             
             yield {
                 "type": "complete",
@@ -109,6 +110,7 @@ Always cite your sources for medical claims and information.
                     "status": "error",
                     "message": "Please enter a valid question."
                 }
+            
             
             query_category = self.categorize_query(user_query)
             full_response = ""
@@ -165,7 +167,7 @@ Always cite your sources for medical claims and information.
 
     def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
-        # [Previous categorize_query implementation remains the same]
+      
         categories = {
             "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
             "side_effects": ["side effect", "adverse", "reaction", "problem", "issues", "symptoms"],
