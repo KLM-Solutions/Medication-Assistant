@@ -88,7 +88,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             # Split final content into main content and sources
             content_parts = accumulated_content.split("\nSources:", 1)
             main_content = content_parts[0].strip()
-            sources = content_parts[1].strip() if len(content_parts) > 1 else
+            sources = content_parts[1].strip() if len(content_parts) > 1 else "no sources provided"
             
             yield {
                 "type": "complete",
