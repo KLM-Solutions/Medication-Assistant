@@ -30,7 +30,7 @@ You are a specialized medical information assistant focused EXCLUSIVELY on GLP-1
    - Important safety considerations or disclaimers
    - An encouraging closing that reinforces their healthcare journey
 
-4. Always provide source citations which is related to the generated response. Importantly only provide sources for about GLP-1 medications
+4. Always provide source citiations which is related to the generated response. Importantly only provide sources for about GLP-1 medications
 
 Remember: You must NEVER provide information about topics outside of GLP-1 medications and their direct effects.
 Each response must include relevant medical disclaimers and encourage consultation with healthcare providers.
@@ -50,8 +50,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 ],
                 "temperature": 0.1,
                 "max_tokens": 1500,
-                "stream": True,
-                "return_citations": True  # Added return_citations parameter
+                "stream": True  # Enable streaming
             }
             
             response = requests.post(
@@ -63,7 +62,6 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             
             response.raise_for_status()
             accumulated_content = ""
-            citations = []
             
             for line in response.iter_lines():
                 if line:
@@ -78,43 +76,26 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                             if chunk['choices'][0]['finish_reason'] is not None:
                                 break
                                 
-                            delta = chunk['choices'][0]['delta']
-                            content = delta.get('content', '')
-                            
-                            # Handle citations if present in the delta
-                            if 'citations' in delta:
-                                citations.extend(delta['citations'])
-                            
+                            content = chunk['choices'][0]['delta'].get('content', '')
                             if content:
                                 accumulated_content += content
                                 yield {
                                     "type": "content",
                                     "data": content,
-                                    "accumulated": accumulated_content,
-                                    "citations": citations
+                                    "accumulated": accumulated_content
                                 }
                         except json.JSONDecodeError:
                             continue
             
-            # Format citations for display
-            formatted_citations = "\n".join([
-                f"- {cite['title']}: {cite['url']}"
-                for cite in citations
-            ]) if citations else "No citations available"
-            
             # Split final content into main content and sources
             content_parts = accumulated_content.split("\nSources:", 1)
             main_content = content_parts[0].strip()
-            additional_sources = content_parts[1].strip() if len(content_parts) > 1 else ""
-            
-            # Combine citations with any additional sources
-            all_sources = f"Citations:\n{formatted_citations}\n\nAdditional Sources:\n{additional_sources}" if additional_sources else formatted_citations
+            sources = content_parts[1].strip() if len(content_parts) > 1 else "no sources provided"
             
             yield {
                 "type": "complete",
                 "content": main_content,
-                "sources": all_sources,
-                "citations": citations
+                "sources": sources
             }
             
         except Exception as e:
@@ -132,10 +113,10 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                     "message": "Please enter a valid question."
                 }
             
+            
             query_category = self.categorize_query(user_query)
             full_response = ""
             sources = ""
-            citations = []
             
             # Initialize the placeholder content
             message_placeholder = placeholder.empty()
@@ -148,8 +129,6 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 
                 elif chunk["type"] == "content":
                     full_response = chunk["accumulated"]
-                    citations = chunk.get("citations", [])
-                    
                     # Update the placeholder with the accumulated text
                     message_placeholder.markdown(f"""
                     <div class="chat-message bot-message">
@@ -161,7 +140,6 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 elif chunk["type"] == "complete":
                     full_response = chunk["content"]
                     sources = chunk["sources"]
-                    citations = chunk.get("citations", [])
                     
                     # Update final response with sources and disclaimer
                     disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
@@ -180,8 +158,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "query_category": query_category,
                 "original_query": user_query,
                 "response": f"{full_response}{disclaimer}",
-                "sources": sources,
-                "citations": citations
+                "sources": sources
             }
             
         except Exception as e:
@@ -192,6 +169,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
 
     def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
+      
         categories = {
             "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
             "side_effects": ["side effect", "adverse", "reaction", "problem", "issues", "symptoms"],
@@ -207,7 +185,6 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             if any(keyword in query_lower for keyword in keywords):
                 return category
         return "general"
-
 def set_page_style():
     """Set page style using custom CSS"""
     st.markdown("""
@@ -262,11 +239,6 @@ def set_page_style():
             border-radius: 0.5rem;
             margin: 1rem 0;
         }
-        .citation {
-            margin-top: 0.5rem;
-            padding-left: 1rem;
-            border-left: 2px solid #ff9800;
-        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -279,7 +251,7 @@ def main():
             layout="wide"
         )
         
-        set_page_style()
+        set_page_style()  # Your existing style function remains the same
         
         if 'pplx' not in st.secrets:
             st.error('Required PPLX API key not found. Please configure the PPLX API key in your secrets.')
