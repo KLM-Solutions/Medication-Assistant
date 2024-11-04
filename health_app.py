@@ -39,7 +39,7 @@ Review and enhance the information about GLP-1 medications only.
 Maintain a professional yet approachable tone, emphasizing both expertise and emotional support.
 """
 
-    def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
+def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
     """Stream response from PPLX API with sources"""
     try:
         payload = {
