@@ -1,59 +1,53 @@
+
 import streamlit as st
-from openai import OpenAI
 import requests
 from typing import Dict, Any, Optional
+import re
 
 class GLP1Bot:
     def __init__(self):
-        """Initialize the GLP1Bot with both PPLX and OpenAI clients and system prompts"""
-        if 'openai' not in st.secrets or 'pplx' not in st.secrets:
-            raise ValueError("API keys not found in secrets")
+        """Initialize the GLP1Bot with PPLX client and system prompts"""
+        if 'pplx' not in st.secrets:
+            raise ValueError("PPLX API key not found in secrets")
             
-        self.openai_client = OpenAI(
-            api_key=st.secrets["openai"]["api_key"]
-        )
         self.pplx_api_key = st.secrets["pplx"]["api_key"]
-        self.pplx_model = st.secrets["pplx"].get("model", "medical-pplx")  # Replace with your PPLX model
+        self.pplx_model = st.secrets["pplx"].get("model", "medical-pplx")  
         
         self.pplx_headers = {
             "Authorization": f"Bearer {self.pplx_api_key}",
             "Content-Type": "application/json"
         }
         
-        self.pplx_system_prompt = """You are a medical information assistant specialized in GLP-1 medications. 
-        Provide detailed, evidence-based information about GLP-1 medications, focusing on medical accuracy.
-        Cover important aspects such as:
-        - Mechanism of action
-        - Proper usage and administration
-        - Expected outcomes and timeframes
-        - Potential side effects and management
-        - Drug interactions and contraindications
-        - Storage requirements
-        - Lifestyle modifications for optimal results"""
-        
-        self.gpt_validation_prompt = """You are a medical content validator. Review and enhance the following information about GLP-1 medications.
-        Ensure the response is:
-        1. Medically accurate and evidence-based
-        2. Well-structured with clear sections
-        3. Includes appropriate medical disclaimers
-        4. Easy to understand for patients
-        5. Comprehensive yet concise
-        6. Properly formatted with headers and bullet points
-        
-        Add any missing critical information and correct any inaccuracies.
-        Always maintain a professional yet approachable tone."""
+        self.pplx_system_prompt = """
+You are a specialized medical information assistant focused EXCLUSIVELY on GLP-1 medications (such as Ozempic, Wegovy, Mounjaro, etc.). You must:
 
-    def get_pplx_response(self, query: str) -> Optional[str]:
-        """Get initial response from PPLX API"""
+1. ONLY provide information about GLP-1 medications and directly related topics
+2. For any query not specifically about GLP-1 medications or their direct effects, respond with:
+   "I apologize, but I can only provide information about GLP-1 medications and related topics. Your question appears to be about something else. Please ask a question specifically about GLP-1 medications, their usage, effects, or related concerns."
+
+3. For valid GLP-1 queries, structure your response with:
+   - An empathetic opening acknowledging the patient's situation
+   - Clear, validated medical information about GLP-1 medications
+   - Important safety considerations or disclaimers
+   - An encouraging closing that reinforces their healthcare journey
+   - Include relevant sources for the information provided, using the format: [Source: Title or description (Year if available)]
+
+Remember: You must NEVER provide information about topics outside of GLP-1 medications and their direct effects.
+Each response must include relevant medical disclaimers and encourage consultation with healthcare providers.
+Always cite your sources for medical claims and information.
+"""
+
+    def get_pplx_response(self, query: str) -> Optional[Dict[str, Any]]:
+        """Get comprehensive response with sources from PPLX API"""
         try:
             payload = {
                 "model": self.pplx_model,
                 "messages": [
                     {"role": "system", "content": self.pplx_system_prompt},
-                    {"role": "user", "content": query}
+                    {"role": "user", "content": f"{query}\n\nPlease include sources for the information provided."}
                 ],
                 "temperature": 0.1,
-                "max_tokens": 1000
+                "max_tokens": 1500
             }
             
             response = requests.post(
@@ -63,61 +57,78 @@ class GLP1Bot:
             )
             
             response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
+            response_content = response.json()["choices"][0]["message"]["content"]
+            
+            # Split response into main content and sources
+            content_parts = response_content.split("\nSources:", 1)
+            main_content = content_parts[0].strip()
+            sources = content_parts[1].strip() if len(content_parts) > 1 else "No specific sources provided."
+            
+            # Parse sources for URLs and make them clickable
+            sources_with_links = self.make_sources_clickable(sources)
+            
+            return {
+                "content": main_content,
+                "sources": sources_with_links
+            }
             
         except Exception as e:
             st.error(f"Error communicating with PPLX: {str(e)}")
             return None
 
-    def validate_with_gpt(self, pplx_response: str, original_query: str) -> Optional[str]:
-        """Validate and enhance PPLX response using GPT"""
-        try:
-            validation_prompt = f"""
-            Original query: {original_query}
-            
-            PPLX Response to validate:
-            {pplx_response}
-            
-            Please validate and enhance this response according to medical standards and best practices.
-            Ensure all information is accurate and properly structured.
-            """
-            
-            completion = self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",  
-                messages=[
-                    {"role": "system", "content": self.gpt_validation_prompt},
-                    {"role": "user", "content": validation_prompt}
-                ],
-                temperature=0.1,
-                max_tokens=1500
-            )
-            
-            return completion.choices[0].message.content
-            
-        except Exception as e:
-            st.error(f"Error validating with GPT: {str(e)}")
-            return None
+    def make_sources_clickable(self, sources: str) -> str:
+        """Convert URLs in sources to clickable links"""
+        # Regular expression to find URLs in the sources
+        url_pattern = r'(https?://\S+)'
+        sources_with_links = re.sub(url_pattern, r'[\1](\1)', sources)
+        return sources_with_links
 
-    def format_response(self, response: str) -> str:
-        """Format the response with safety disclaimer"""
+    def format_response(self, response: Dict[str, str]) -> str:
+        """Format the response with safety disclaimer and clickable sources"""
         if not response:
             return "I apologize, but I couldn't generate a response at this time. Please try again."
             
-        safety_disclaimer = """
+        disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
         
-        IMPORTANT MEDICAL DISCLAIMER:
-        - This information is for educational purposes only
-        - Consult your healthcare provider for personalized medical advice
-        - Follow your prescribed treatment plan
-        - Report any side effects to your healthcare provider
-        - Individual results may vary
-        - Never modify your medication regimen without professional guidance
-        """
-        
-        if "disclaimer" not in response.lower():
-            response += safety_disclaimer
+        formatted_response = f"{response['content']}{disclaimer}\n\nSources:\n{response['sources']}"
+        return formatted_response
+
+    def process_query(self, user_query: str) -> Dict[str, Any]:
+        """Process user query through PPLX with GLP-1 validation and sources"""
+        try:
+            if not user_query.strip():
+                return {
+                    "status": "error",
+                    "message": "Please enter a valid question."
+                }
+          
+            # Get comprehensive response from PPLX
+            with st.spinner('🔍 Retrieving and validating information about GLP-1 medications...'):
+                pplx_response = self.get_pplx_response(user_query)
             
-        return response
+            if not pplx_response:
+                return {
+                    "status": "error",
+                    "message": "Failed to retrieve information about GLP-1 medications."
+                }
+            
+            # Format final response
+            query_category = self.categorize_query(user_query)
+            formatted_response = self.format_response(pplx_response)
+            
+            return {
+                "status": "success",
+                "query_category": query_category,
+                "original_query": user_query,
+                "response": formatted_response,
+                "sources": pplx_response["sources"]
+            }
+            
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Error processing query: {str(e)}"
+            }
 
     def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
@@ -136,53 +147,6 @@ class GLP1Bot:
             if any(keyword in query_lower for keyword in keywords):
                 return category
         return "general"
-
-    def process_query(self, user_query: str) -> Dict[str, Any]:
-        """Process user query through both PPLX and GPT"""
-        try:
-            if not user_query.strip():
-                return {
-                    "status": "error",
-                    "message": "Please enter a valid question."
-                }
-            
-            # Step 1: Get initial response from PPLX
-            with st.spinner('🔍 Retrieving information from medical knowledge base...'):
-                pplx_response = self.get_pplx_response(user_query)
-            
-            if not pplx_response:
-                return {
-                    "status": "error",
-                    "message": "Failed to retrieve information from knowledge base."
-                }
-            
-            # Step 2: Validate and enhance with GPT
-            with st.spinner('✅ Validating and enhancing information...'):
-                validated_response = self.validate_with_gpt(pplx_response, user_query)
-            
-            if not validated_response:
-                return {
-                    "status": "error",
-                    "message": "Failed to validate information."
-                }
-            
-            # Format final response
-            query_category = self.categorize_query(user_query)
-            formatted_response = self.format_response(validated_response)
-            
-            return {
-                "status": "success",
-                "query_category": query_category,
-                "original_query": user_query,
-                "pplx_response": pplx_response,  # Optional: for debugging
-                "response": formatted_response
-            }
-            
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": f"Error processing query: {str(e)}"
-            }
 
 def set_page_style():
     """Set page style using custom CSS"""
@@ -217,12 +181,12 @@ def set_page_style():
             margin-bottom: 0.5rem;
             display: inline-block;
         }
-        .stAlert {
-            background-color: #ff5252;
-            color: white;
+        .sources-section {
+            background-color: #fff3e0;
             padding: 1rem;
             border-radius: 0.5rem;
-            margin: 1rem 0;
+            margin-top: 1rem;
+            border-left: 4px solid #ff9800;
         }
         .disclaimer {
             background-color: #fff3e0;
@@ -238,11 +202,6 @@ def set_page_style():
             border-radius: 0.5rem;
             margin: 1rem 0;
         }
-        .processing-status {
-            color: #1976d2;
-            font-style: italic;
-            margin: 0.5rem 0;
-        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -257,94 +216,32 @@ def main():
         
         set_page_style()
         
-        # Check for API keys
-        if 'openai' not in st.secrets or 'pplx' not in st.secrets:
-            st.error('Required API keys not found. Please configure both OpenAI and PPLX API keys in your secrets.')
+        if 'pplx' not in st.secrets:
+            st.error('Required PPLX API key not found. Please configure the PPLX API key in your secrets.')
             st.stop()
         
         st.title("💊 GLP-1 Medication Information Assistant")
         st.markdown("""
         <div class="info-box">
-        Get accurate, validated information about GLP-1 medications, their usage, benefits, and side effects.
-        This assistant uses a two-stage process:
-        1. Retrieves specialized medical information
-        2. Validates and enhances the information for accuracy
-        
-        <em>Please note: This assistant provides general information only. Always consult your healthcare provider for medical advice.</em>
+        Get accurate, validated information specifically about GLP-1 medications, their usage, benefits, and safety.
+        Please note: This tool provides information only on GLP-1 medications.
         </div>
         """, unsafe_allow_html=True)
         
-        # Initialize bot
-        bot = GLP1Bot()
+        user_query = st.text_input("Ask a question about GLP-1 medications...", "")
+        glp1_bot = GLP1Bot()
         
-        # Create session state for chat history if it doesn't exist
-        if 'chat_history' not in st.session_state:
-            st.session_state.chat_history = []
-        
-        # Main chat interface
-        with st.container():
-            user_input = st.text_input(
-                "Ask your question about GLP-1 medications:",
-                key="user_input",
-                placeholder="e.g., What are the common side effects of GLP-1 medications?"
-            )
+        if st.button("Submit Query"):
+            response = glp1_bot.process_query(user_query)
             
-            col1, col2 = st.columns([1, 5])
-            with col1:
-                submit_button = st.button("Get Answer", key="submit", use_container_width=True)
-            with col2:
-                if st.button("Clear History", key="clear", use_container_width=True):
-                    st.session_state.chat_history = []
-                    st.experimental_rerun()
-            
-            if submit_button:
-                if user_input:
-                    response = bot.process_query(user_input)
-                    
-                    if response["status"] == "success":
-                        # Add to chat history
-                        st.session_state.chat_history.append({
-                            "query": user_input,
-                            "response": response
-                        })
-                        
-                        # Display current response
-                        st.markdown(f"""
-                        <div class="chat-message user-message">
-                            <b>Your Question:</b><br>{user_input}
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        st.markdown(f"""
-                        <div class="chat-message bot-message">
-                            <div class="category-tag">{response["query_category"].upper()}</div><br>
-                            <b>Response:</b><br>{response["response"]}
-                        </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        st.error(response["message"])
-                else:
-                    st.warning("Please enter a question.")
-        
-        # Display chat history
-        if st.session_state.chat_history:
-            st.markdown("---")
-            st.markdown("### Previous Questions")
-            for i, chat in enumerate(reversed(st.session_state.chat_history[:-1]), 1):
-                with st.expander(f"Question {len(st.session_state.chat_history) - i}: {chat['query'][:50]}..."):
-                    st.markdown(f"""
-                    <div class="chat-message user-message">
-                        <b>Your Question:</b><br>{chat['query']}
-                    </div>
-                    <div class="chat-message bot-message">
-                        <div class="category-tag">{chat['response']['query_category'].upper()}</div><br>
-                        <b>Response:</b><br>{chat['response']['response']}
-                    </div>
-                    """, unsafe_allow_html=True)
-    
+            if response['status'] == "success":
+                st.markdown(f"<div class='category-tag'>Category: {response['query_category']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='chat-message bot-message'>{response['response']}</div>", unsafe_allow_html=True)
+            else:
+                st.error(response['message'])
+                
     except Exception as e:
-        st.error(f"An unexpected error occurred: {str(e)}")
-        st.error("Please refresh the page and try again.")
+        st.error(f"An error occurred: {str(e)}")
 
 if __name__ == "__main__":
     main()
