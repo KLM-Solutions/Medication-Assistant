@@ -40,8 +40,8 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
 """
 
     def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
-     """Stream response from PPLX API with explicit citation handling"""
-     try:
+    """Stream response from PPLX API with explicit citation handling"""
+    try:
         payload = {
             "model": self.pplx_model,
             "messages": [
@@ -140,7 +140,8 @@ def extract_citations(self, text: str) -> list[dict]:
         })
     
     return citations
-    def format_content_with_citations(self, content: str) -> str:
+
+def format_content_with_citations(self, content: str) -> str:
     """Format content with properly styled citation markers"""
     # Replace plain citation markers with styled ones
     formatted_content = re.sub(
@@ -150,7 +151,7 @@ def extract_citations(self, text: str) -> list[dict]:
     )
     return formatted_content
 
-   def format_citations(self, citations: list[dict]) -> str:
+def format_citations(self, citations: list[dict]) -> str:
     """Format citations into HTML with proper styling"""
     # Group citations by number and combine inline/reference information
     citation_dict = {}
@@ -178,7 +179,7 @@ def extract_citations(self, text: str) -> list[dict]:
     
     return "\n".join(html_citations) if html_citations else "No citations provided"
 
-   def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
+def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
     """Process user query with streaming response and enhanced citations"""
     try:
         if not user_query.strip():
@@ -241,7 +242,6 @@ def extract_citations(self, text: str) -> list[dict]:
             "status": "error",
             "message": f"Error processing query: {str(e)}"
         }
-
     def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
       
