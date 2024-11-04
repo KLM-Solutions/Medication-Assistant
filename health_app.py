@@ -17,60 +17,36 @@ class GLP1Bot:
             "Content-Type": "application/json"
         }
         
-        # Define the JSON structure expected in the response
-        self.response_structure = """
-        {
-            "response": {
-                "opening": "empathetic opening acknowledging patient situation",
-                "medical_info": "clear validated medical information",
-                "safety": "important safety considerations",
-                "closing": "encouraging closing statement"
-            },
-            "sources": ["source1", "source2"]
-        }
-        """
-        
-        self.pplx_system_prompt = f"""
-You are a specialized medical information assistant focused EXCLUSIVELY on GLP-1 medications (such as Ozempic, Wegovy, Mounjaro, etc.). 
-
-Your responses must be structured in the following JSON format:
-{self.response_structure}
-
-You must:
+        self.pplx_system_prompt = """
+You are a specialized medical information assistant focused EXCLUSIVELY on GLP-1 medications (such as Ozempic, Wegovy, Mounjaro, etc.). You must:
 
 1. ONLY provide information about GLP-1 medications and directly related topics
 2. For any query not specifically about GLP-1 medications or their direct effects, respond with:
-   {{
-       "response": {{
-           "opening": "I apologize for any confusion",
-           "medical_info": "I can only provide information about GLP-1 medications and related topics",
-           "safety": "Please ask a question specifically about GLP-1 medications",
-           "closing": "I'm here to help with any GLP-1 medication related questions"
-       }},
-       "sources": []
-   }}
+   "I apologize, but I can only provide information about GLP-1 medications and related topics. Your question appears to be about something else. Please ask a question specifically about GLP-1 medications, their usage, effects, or related concerns."
 
-3. For valid GLP-1 queries, ensure the JSON response includes:
+3. For valid GLP-1 queries, structure your response with:
    - An empathetic opening acknowledging the patient's situation
    - Clear, validated medical information about GLP-1 medications
-   - Important safety considerations
+   - Important safety considerations or disclaimers
    - An encouraging closing that reinforces their healthcare journey
-   - Relevant source citations
+
+4. Always provide source citations which is related to the generated response. Importantly only provide sources for about GLP-1 medications
 
 Remember: You must NEVER provide information about topics outside of GLP-1 medications and their direct effects.
 Each response must include relevant medical disclaimers and encourage consultation with healthcare providers.
+You are a medical content validator specialized in GLP-1 medications.
+Review and enhance the information about GLP-1 medications only.
 Maintain a professional yet approachable tone, emphasizing both expertise and emotional support.
-ALWAYS structure your response in the specified JSON format.
 """
 
     def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
-        """Stream response from PPLX API with sources in JSON format"""
+        """Stream response from PPLX API with sources"""
         try:
             payload = {
                 "model": self.pplx_model,
                 "messages": [
                     {"role": "system", "content": self.pplx_system_prompt},
-                    {"role": "user", "content": f"{query}\n\nPlease structure the response in JSON format."}
+                    {"role": "user", "content": f"{query}\n\nPlease include sources for the information provided."}
                 ],
                 "temperature": 0.1,
                 "max_tokens": 1500,
@@ -103,37 +79,24 @@ ALWAYS structure your response in the specified JSON format.
                             content = chunk['choices'][0]['delta'].get('content', '')
                             if content:
                                 accumulated_content += content
-                                try:
-                                    # Try to parse the accumulated content as JSON
-                                    parsed_json = json.loads(accumulated_content)
-                                    yield {
-                                        "type": "content",
-                                        "data": content,
-                                        "accumulated": parsed_json
-                                    }
-                                except json.JSONDecodeError:
-                                    # If not complete JSON yet, yield as is
-                                    yield {
-                                        "type": "content",
-                                        "data": content,
-                                        "accumulated": accumulated_content
-                                    }
+                                yield {
+                                    "type": "content",
+                                    "data": content,
+                                    "accumulated": accumulated_content
+                                }
                         except json.JSONDecodeError:
                             continue
             
-            try:
-                # Parse the final accumulated content as JSON
-                final_json = json.loads(accumulated_content)
-                yield {
-                    "type": "complete",
-                    "content": final_json["response"],
-                    "sources": final_json["sources"]
-                }
-            except json.JSONDecodeError:
-                yield {
-                    "type": "error",
-                    "message": "Failed to parse response as JSON"
-                }
+            # Split final content into main content and sources
+            content_parts = accumulated_content.split("\nSources:", 1)
+            main_content = content_parts[0].strip()
+            sources = content_parts[1].strip() if len(content_parts) > 1 else "no sources provided"
+            
+            yield {
+                "type": "complete",
+                "content": main_content,
+                "sources": sources
+            }
             
         except Exception as e:
             yield {
@@ -142,17 +105,25 @@ ALWAYS structure your response in the specified JSON format.
             }
 
     def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
-        """Process user query with streaming response in JSON format"""
+        """Process user query with streaming response and return JSON format"""
         try:
             if not user_query.strip():
                 return {
                     "status": "error",
-                    "message": "Please enter a valid question."
+                    "message": "Please enter a valid question.",
+                    "json_response": {}
                 }
             
             query_category = self.categorize_query(user_query)
-            full_response = {}
-            sources = []
+            full_response = ""
+            sources = ""
+            accumulated_response = {
+                "query": user_query,
+                "category": query_category,
+                "streaming_content": [],
+                "final_response": {},
+                "status": "processing"
+            }
             
             # Initialize the placeholder content
             message_placeholder = placeholder.empty()
@@ -161,47 +132,67 @@ ALWAYS structure your response in the specified JSON format.
             for chunk in self.stream_pplx_response(user_query):
                 if chunk["type"] == "error":
                     placeholder.error(chunk["message"])
-                    return {"status": "error", "message": chunk["message"]}
+                    accumulated_response["status"] = "error"
+                    accumulated_response["error_message"] = chunk["message"]
+                    return accumulated_response
                 
                 elif chunk["type"] == "content":
-                    if isinstance(chunk["accumulated"], dict):
-                        full_response = chunk["accumulated"].get("response", {})
-                        sources = chunk["accumulated"].get("sources", [])
-                        
-                        # Update the placeholder with structured JSON response
-                        message_placeholder.json({
-                            "category": query_category.upper(),
-                            "response": full_response,
-                            "sources": sources
-                        })
+                    full_response = chunk["accumulated"]
+                    accumulated_response["streaming_content"].append(chunk["data"])
+                    
+                    # Update the placeholder with the accumulated text
+                    message_placeholder.markdown(f"""
+                    <div class="chat-message bot-message">
+                        <div class="category-tag">{query_category.upper()}</div><br>
+                        <b>Response:</b><br>{full_response}
+                    </div>
+                    """, unsafe_allow_html=True)
                 
                 elif chunk["type"] == "complete":
                     full_response = chunk["content"]
                     sources = chunk["sources"]
+                    disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
                     
-                    # Final JSON response with disclaimer
-                    final_response = {
-                        "category": query_category.upper(),
-                        "response": full_response,
+                    # Update final response with sources and disclaimer
+                    message_placeholder.markdown(f"""
+                    <div class="chat-message bot-message">
+                        <div class="category-tag">{query_category.upper()}</div><br>
+                        <b>Response:</b><br>{full_response}{disclaimer}
+                        <div class="sources-section">
+                            <b>Sources:</b><br>{sources}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Store the final response in JSON format
+                    accumulated_response["status"] = "success"
+                    accumulated_response["final_response"] = {
+                        "query_category": query_category,
+                        "original_query": user_query,
+                        "main_content": full_response,
+                        "disclaimer": disclaimer.strip(),
                         "sources": sources,
-                        "disclaimer": "Always consult your healthcare provider before making any changes to your medication or treatment plan."
+                        "complete_response": {
+                            "formatted_content": f"{full_response}{disclaimer}",
+                            "metadata": {
+                                "category": query_category,
+                                "has_sources": bool(sources.strip()),
+                                "response_length": len(full_response),
+                                "timestamp": st.session_state.get('current_timestamp', '')
+                            }
+                        }
                     }
-                    
-                    message_placeholder.json(final_response)
             
-            return {
-                "status": "success",
-                "query_category": query_category,
-                "original_query": user_query,
-                "response": full_response,
-                "sources": sources
-            }
+            return accumulated_response
             
         except Exception as e:
-            return {
+            error_response = {
                 "status": "error",
-                "message": f"Error processing query: {str(e)}"
+                "message": f"Error processing query: {str(e)}",
+                "query": user_query,
+                "json_response": {}
             }
+            return error_response
 
     def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
@@ -221,6 +212,71 @@ ALWAYS structure your response in the specified JSON format.
                 return category
         return "general"
 
+def set_page_style():
+    """Set page style using custom CSS"""
+    st.markdown("""
+    <style>
+        .main {
+            background-color: #f5f5f5;
+        }
+        .stTextInput>div>div>input {
+            background-color: white;
+        }
+        .chat-message {
+            padding: 1.5rem;
+            border-radius: 0.8rem;
+            margin: 1rem 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .user-message {
+            background-color: #e3f2fd;
+            border-left: 4px solid #1976d2;
+        }
+        .bot-message {
+            background-color: #f5f5f5;
+            border-left: 4px solid #43a047;
+        }
+        .category-tag {
+            background-color: #2196f3;
+            color: white;
+            padding: 0.2rem 0.6rem;
+            border-radius: 1rem;
+            font-size: 0.8rem;
+            margin-bottom: 0.5rem;
+            display: inline-block;
+        }
+        .sources-section {
+            background-color: #fff3e0;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-top: 1rem;
+            border-left: 4px solid #ff9800;
+        }
+        .disclaimer {
+            background-color: #fff3e0;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            border-left: 4px solid #ff9800;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+        }
+        .info-box {
+            background-color: #e8f5e9;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin: 1rem 0;
+        }
+        .json-response {
+            background-color: #f8f9fa;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            border-left: 4px solid #6c757d;
+            margin-top: 1rem;
+            font-family: monospace;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
 def main():
     """Main application function"""
     try:
@@ -230,18 +286,21 @@ def main():
             layout="wide"
         )
         
+        set_page_style()
+        
         if 'pplx' not in st.secrets:
             st.error('Required PPLX API key not found. Please configure the PPLX API key in your secrets.')
             st.stop()
         
         st.title("💊 GLP-1 Medication Information Assistant")
-        st.info("""
-        Get accurate, validated information specifically about GLP-1 medications.
-        Responses will be provided in JSON format with structured sections.
+        st.markdown("""
+        <div class="info-box">
+        Get accurate, validated information specifically about GLP-1 medications, their usage, benefits, and side effects.
+        Our assistant specializes exclusively in GLP-1 medications and related topics.
         
-        Note: This assistant provides general information about GLP-1 medications only. 
-        Always consult your healthcare provider for medical advice.
-        """)
+        <em>Please note: This assistant provides general information about GLP-1 medications only. Always consult your healthcare provider for medical advice.</em>
+        </div>
+        """, unsafe_allow_html=True)
         
         bot = GLP1Bot()
         
@@ -260,16 +319,26 @@ def main():
                 submit_button = st.button("Get Answer", key="submit")
             
             if submit_button and user_input:
+                st.markdown(f"""
+                <div class="chat-message user-message">
+                    <b>Your Question:</b><br>{user_input}
+                </div>
+                """, unsafe_allow_html=True)
+                
                 # Create a placeholder for the streaming response
                 response_placeholder = st.empty()
                 
-                # Process the query with streaming
-                response = bot.process_streaming_query(user_input, response_placeholder)
+                # Process the query with streaming and get JSON response
+                json_response = bot.process_streaming_query(user_input, response_placeholder)
                 
-                if response["status"] == "success":
+                # Display JSON response in an expander
+                with st.expander("View JSON Response"):
+                    st.json(json_response)
+                
+                if json_response["status"] == "success":
                     st.session_state.chat_history.append({
                         "query": user_input,
-                        "response": response
+                        "response": json_response["final_response"]
                     })
         
         if st.session_state.chat_history:
@@ -277,12 +346,18 @@ def main():
             st.markdown("### Previous Questions")
             for i, chat in enumerate(reversed(st.session_state.chat_history[:-1]), 1):
                 with st.expander(f"Question {len(st.session_state.chat_history) - i}: {chat['query'][:50]}..."):
-                    st.json({
-                        "question": chat['query'],
-                        "category": chat['response']['query_category'].upper(),
-                        "response": chat['response']['response'],
-                        "sources": chat['response']['sources']
-                    })
+                    st.markdown(f"""
+                    <div class="chat-message user-message">
+                        <b>Your Question:</b><br>{chat['query']}
+                    </div>
+                    <div class="chat-message bot-message">
+                        <div class="category-tag">{chat['response']['query_category'].upper()}</div><br>
+                        <b>Response:</b><br>{chat['response']['complete_response']['formatted_content']}
+                        <div class="sources-section">
+                            <b>Sources:</b><br>{chat['response']['sources']}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
     
     except Exception as e:
         st.error(f"An unexpected error occurred: {str(e)}")
