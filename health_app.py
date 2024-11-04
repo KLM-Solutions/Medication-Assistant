@@ -30,7 +30,7 @@ You are a specialized medical information assistant focused EXCLUSIVELY on GLP-1
    - Important safety considerations or disclaimers
    - An encouraging closing that reinforces their healthcare journey
 
-4. Always provide source citations which is related to the generated response. Importantly only provide sources for about GLP-1 medications
+4. Always provide source citiations which is related to the generated response. Importantly only provide sources for about GLP-1 medications
 
 Remember: You must NEVER provide information about topics outside of GLP-1 medications and their direct effects.
 Each response must include relevant medical disclaimers and encourage consultation with healthcare providers.
@@ -50,7 +50,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 ],
                 "temperature": 0.1,
                 "max_tokens": 1500,
-                "stream": True
+                "stream": True  # Enable streaming
             }
             
             response = requests.post(
@@ -105,25 +105,18 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             }
 
     def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
-        """Process user query with streaming response and return JSON format"""
+        """Process user query with streaming response"""
         try:
             if not user_query.strip():
                 return {
                     "status": "error",
-                    "message": "Please enter a valid question.",
-                    "json_response": {}
+                    "message": "Please enter a valid question."
                 }
+            
             
             query_category = self.categorize_query(user_query)
             full_response = ""
             sources = ""
-            accumulated_response = {
-                "query": user_query,
-                "category": query_category,
-                "streaming_content": [],
-                "final_response": {},
-                "status": "processing"
-            }
             
             # Initialize the placeholder content
             message_placeholder = placeholder.empty()
@@ -132,14 +125,10 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             for chunk in self.stream_pplx_response(user_query):
                 if chunk["type"] == "error":
                     placeholder.error(chunk["message"])
-                    accumulated_response["status"] = "error"
-                    accumulated_response["error_message"] = chunk["message"]
-                    return accumulated_response
+                    return {"status": "error", "message": chunk["message"]}
                 
                 elif chunk["type"] == "content":
                     full_response = chunk["accumulated"]
-                    accumulated_response["streaming_content"].append(chunk["data"])
-                    
                     # Update the placeholder with the accumulated text
                     message_placeholder.markdown(f"""
                     <div class="chat-message bot-message">
@@ -151,9 +140,9 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 elif chunk["type"] == "complete":
                     full_response = chunk["content"]
                     sources = chunk["sources"]
-                    disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
                     
                     # Update final response with sources and disclaimer
+                    disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
                     message_placeholder.markdown(f"""
                     <div class="chat-message bot-message">
                         <div class="category-tag">{query_category.upper()}</div><br>
@@ -163,39 +152,24 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
-                    
-                    # Store the final response in JSON format
-                    accumulated_response["status"] = "success"
-                    accumulated_response["final_response"] = {
-                        "query_category": query_category,
-                        "original_query": user_query,
-                        "main_content": full_response,
-                        "disclaimer": disclaimer.strip(),
-                        "sources": sources,
-                        "complete_response": {
-                            "formatted_content": f"{full_response}{disclaimer}",
-                            "metadata": {
-                                "category": query_category,
-                                "has_sources": bool(sources.strip()),
-                                "response_length": len(full_response),
-                                "timestamp": st.session_state.get('current_timestamp', '')
-                            }
-                        }
-                    }
             
-            return accumulated_response
+            return {
+                "status": "success",
+                "query_category": query_category,
+                "original_query": user_query,
+                "response": f"{full_response}{disclaimer}",
+                "sources": sources
+            }
             
         except Exception as e:
-            error_response = {
+            return {
                 "status": "error",
-                "message": f"Error processing query: {str(e)}",
-                "query": user_query,
-                "json_response": {}
+                "message": f"Error processing query: {str(e)}"
             }
-            return error_response
 
     def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
+      
         categories = {
             "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
             "side_effects": ["side effect", "adverse", "reaction", "problem", "issues", "symptoms"],
@@ -211,7 +185,6 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             if any(keyword in query_lower for keyword in keywords):
                 return category
         return "general"
-
 def set_page_style():
     """Set page style using custom CSS"""
     st.markdown("""
@@ -266,14 +239,6 @@ def set_page_style():
             border-radius: 0.5rem;
             margin: 1rem 0;
         }
-        .json-response {
-            background-color: #f8f9fa;
-            padding: 1rem;
-            border-radius: 0.5rem;
-            border-left: 4px solid #6c757d;
-            margin-top: 1rem;
-            font-family: monospace;
-        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -286,7 +251,7 @@ def main():
             layout="wide"
         )
         
-        set_page_style()
+        set_page_style()  # Your existing style function remains the same
         
         if 'pplx' not in st.secrets:
             st.error('Required PPLX API key not found. Please configure the PPLX API key in your secrets.')
@@ -328,17 +293,13 @@ def main():
                 # Create a placeholder for the streaming response
                 response_placeholder = st.empty()
                 
-                # Process the query with streaming and get JSON response
-                json_response = bot.process_streaming_query(user_input, response_placeholder)
+                # Process the query with streaming
+                response = bot.process_streaming_query(user_input, response_placeholder)
                 
-                # Display JSON response in an expander
-                with st.expander("View JSON Response"):
-                    st.json(json_response)
-                
-                if json_response["status"] == "success":
+                if response["status"] == "success":
                     st.session_state.chat_history.append({
                         "query": user_input,
-                        "response": json_response["final_response"]
+                        "response": response
                     })
         
         if st.session_state.chat_history:
@@ -352,7 +313,7 @@ def main():
                     </div>
                     <div class="chat-message bot-message">
                         <div class="category-tag">{chat['response']['query_category'].upper()}</div><br>
-                        <b>Response:</b><br>{chat['response']['complete_response']['formatted_content']}
+                        <b>Response:</b><br>{chat['response']['response']}
                         <div class="sources-section">
                             <b>Sources:</b><br>{chat['response']['sources']}
                         </div>
