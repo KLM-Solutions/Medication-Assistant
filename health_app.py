@@ -38,18 +38,18 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
 """
 
     def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
-        """Stream response from PPLX API with citations"""
+        """Stream response from PPLX API with sources and citations"""
         try:
             payload = {
                 "model": self.pplx_model,
                 "messages": [
                     {"role": "system", "content": self.pplx_system_prompt},
-                    {"role": "user", "content": query}
+                    {"role": "user", "content": f"{query}\n\nPlease include sources for the information provided."}
                 ],
                 "temperature": 0.1,
                 "max_tokens": 1500,
                 "stream": True,
-                "return_citations": True  # Enable citation return
+                "return_citations": True
             }
             
             response = requests.post(
@@ -61,14 +61,13 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             
             response.raise_for_status()
             accumulated_content = ""
-            citations = []
             
             for line in response.iter_lines():
                 if line:
                     line = line.decode('utf-8')
                     if line.startswith('data: '):
                         try:
-                            json_str = line[6:]
+                            json_str = line[6:]  # Remove 'data: ' prefix
                             if json_str.strip() == '[DONE]':
                                 break
                             
@@ -77,25 +76,33 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                                 break
                                 
                             content = chunk['choices'][0]['delta'].get('content', '')
-                            # Get citations if available in the chunk
-                            if 'citations' in chunk:
-                                citations = chunk['citations']
-                                
                             if content:
                                 accumulated_content += content
+                                # Split content and sources
+                                parts = accumulated_content.split("\nSources:", 1)
+                                main_content = parts[0].strip()
+                                sources = parts[1].strip() if len(parts) > 1 else ""
+                                
                                 yield {
                                     "type": "content",
                                     "data": content,
-                                    "accumulated": accumulated_content,
-                                    "citations": citations
+                                    "accumulated": main_content,
+                                    "sources": sources,
+                                    "citations": chunk.get('citations', [])
                                 }
                         except json.JSONDecodeError:
                             continue
             
+            # Split final content into main content and sources
+            parts = accumulated_content.split("\nSources:", 1)
+            main_content = parts[0].strip()
+            sources = parts[1].strip() if len(parts) > 1 else ""
+            
             yield {
                 "type": "complete",
-                "content": accumulated_content,
-                "citations": citations
+                "content": main_content,
+                "sources": sources,
+                "citations": []  # Include any citations from the final response
             }
             
         except Exception as e:
@@ -115,6 +122,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             
             query_category = self.categorize_query(user_query)
             full_response = ""
+            sources = ""
             citations = []
             
             # Initialize the placeholder content
@@ -128,34 +136,34 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 
                 elif chunk["type"] == "content":
                     full_response = chunk["accumulated"]
+                    sources = chunk.get("sources", "")
                     citations = chunk.get("citations", [])
-                    
-                    # Format citations for display
-                    citations_html = self.format_citations_html(citations)
                     
                     # Update the placeholder with the accumulated text
                     message_placeholder.markdown(f"""
                     <div class="chat-message bot-message">
                         <div class="category-tag">{query_category.upper()}</div><br>
                         <b>Response:</b><br>{full_response}
-                        {citations_html}
+                        <div class="sources-section">
+                            <b>Sources:</b><br>{sources}
+                        </div>
                     </div>
                     """, unsafe_allow_html=True)
                 
                 elif chunk["type"] == "complete":
                     full_response = chunk["content"]
+                    sources = chunk.get("sources", "")
                     citations = chunk.get("citations", [])
                     
-                    # Format citations for display
-                    citations_html = self.format_citations_html(citations)
-                    
-                    # Update final response with citations and disclaimer
+                    # Update final response with sources and disclaimer
                     disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
                     message_placeholder.markdown(f"""
                     <div class="chat-message bot-message">
                         <div class="category-tag">{query_category.upper()}</div><br>
                         <b>Response:</b><br>{full_response}{disclaimer}
-                        {citations_html}
+                        <div class="sources-section">
+                            <b>Sources:</b><br>{sources}
+                        </div>
                     </div>
                     """, unsafe_allow_html=True)
             
@@ -164,6 +172,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "query_category": query_category,
                 "original_query": user_query,
                 "response": f"{full_response}{disclaimer}",
+                "sources": sources,
                 "citations": citations
             }
             
