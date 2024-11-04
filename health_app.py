@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
-import json
-from typing import Dict, Any, Optional, Generator
+from typing import Dict, Any, Optional
 
 class GLP1Bot:
     def __init__(self):
@@ -26,187 +25,77 @@ You are a specialized medical information assistant focused EXCLUSIVELY on GLP-1
 
 3. For valid GLP-1 queries, structure your response with:
    - An empathetic opening acknowledging the patient's situation
-   - Clear, validated medical information about GLP-1 medications
+   - Clear, validated medical information about GLP-1 medications with citations
    - Important safety considerations or disclaimers
    - An encouraging closing that reinforces their healthcare journey
 
-4. Always provide scientific citations for medical claims made in the response.
+4. For each claim or statement about GLP-1 medications, include a citation to a reputable medical source.
 
 Remember: You must NEVER provide information about topics outside of GLP-1 medications and their direct effects.
 Each response must include relevant medical disclaimers and encourage consultation with healthcare providers.
-Maintain a professional yet approachable tone, emphasizing both expertise and emotional support.
+Ensure all medical claims are properly cited using reputable sources.
 """
 
-    def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
-        """Stream response from PPLX API with sources and citations"""
+    def get_pplx_response(self, query: str) -> Optional[Dict[str, Any]]:
+        """Get comprehensive response from PPLX API with citations"""
         try:
             payload = {
                 "model": self.pplx_model,
                 "messages": [
                     {"role": "system", "content": self.pplx_system_prompt},
-                    {"role": "user", "content": f"{query}\n\nPlease include sources for the information provided."}
+                    {"role": "user", "content": query}
                 ],
                 "temperature": 0.1,
                 "max_tokens": 1500,
-                "stream": True,
                 "return_citations": True
             }
             
             response = requests.post(
                 "https://api.perplexity.ai/chat/completions",
                 headers=self.pplx_headers,
-                json=payload,
-                stream=True
+                json=payload
             )
             
             response.raise_for_status()
-            accumulated_content = ""
+            response_data = response.json()
             
-            for line in response.iter_lines():
-                if line:
-                    line = line.decode('utf-8')
-                    if line.startswith('data: '):
-                        try:
-                            json_str = line[6:]  # Remove 'data: ' prefix
-                            if json_str.strip() == '[DONE]':
-                                break
-                            
-                            chunk = json.loads(json_str)
-                            if chunk['choices'][0]['finish_reason'] is not None:
-                                break
-                                
-                            content = chunk['choices'][0]['delta'].get('content', '')
-                            if content:
-                                accumulated_content += content
-                                # Split content and sources
-                                parts = accumulated_content.split("\nSources:", 1)
-                                main_content = parts[0].strip()
-                                sources = parts[1].strip() if len(parts) > 1 else ""
-                                
-                                yield {
-                                    "type": "content",
-                                    "data": content,
-                                    "accumulated": main_content,
-                                    "sources": sources,
-                                    "citations": chunk.get('citations', [])
-                                }
-                        except json.JSONDecodeError:
-                            continue
-            
-            # Split final content into main content and sources
-            parts = accumulated_content.split("\nSources:", 1)
-            main_content = parts[0].strip()
-            sources = parts[1].strip() if len(parts) > 1 else ""
-            
-            yield {
-                "type": "complete",
-                "content": main_content,
-                "sources": sources,
-                "citations": []  # Include any citations from the final response
-            }
-            
-        except Exception as e:
-            yield {
-                "type": "error",
-                "message": f"Error communicating with PPLX: {str(e)}"
-            }
-
-    def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
-        """Process user query with streaming response"""
-        try:
-            if not user_query.strip():
-                return {
-                    "status": "error",
-                    "message": "Please enter a valid question."
-                }
-            
-            query_category = self.categorize_query(user_query)
-            full_response = ""
-            sources = ""
-            citations = []
-            
-            # Initialize the placeholder content
-            message_placeholder = placeholder.empty()
-            
-            # Stream the response
-            for chunk in self.stream_pplx_response(user_query):
-                if chunk["type"] == "error":
-                    placeholder.error(chunk["message"])
-                    return {"status": "error", "message": chunk["message"]}
-                
-                elif chunk["type"] == "content":
-                    full_response = chunk["accumulated"]
-                    sources = chunk.get("sources", "")
-                    citations = chunk.get("citations", [])
-                    
-                    # Update the placeholder with the accumulated text
-                    message_placeholder.markdown(f"""
-                    <div class="chat-message bot-message">
-                        <div class="category-tag">{query_category.upper()}</div><br>
-                        <b>Response:</b><br>{full_response}
-                        <div class="sources-section">
-                            <b>Sources:</b><br>{sources}
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                elif chunk["type"] == "complete":
-                    full_response = chunk["content"]
-                    sources = chunk.get("sources", "")
-                    citations = chunk.get("citations", [])
-                    
-                    # Update final response with sources and disclaimer
-                    disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
-                    message_placeholder.markdown(f"""
-                    <div class="chat-message bot-message">
-                        <div class="category-tag">{query_category.upper()}</div><br>
-                        <b>Response:</b><br>{full_response}{disclaimer}
-                        <div class="sources-section">
-                            <b>Sources:</b><br>{sources}
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+            content = response_data["choices"][0]["message"]["content"]
+            citations = response_data["choices"][0]["message"].get("citations", [])
             
             return {
-                "status": "success",
-                "query_category": query_category,
-                "original_query": user_query,
-                "response": f"{full_response}{disclaimer}",
-                "sources": sources,
+                "content": content,
                 "citations": citations
             }
             
         except Exception as e:
-            return {
-                "status": "error",
-                "message": f"Error processing query: {str(e)}"
-            }
+            st.error(f"Error communicating with PPLX: {str(e)}")
+            return None
 
-    def format_citations_html(self, citations: list) -> str:
-        """Format citations into HTML"""
-        if not citations:
-            return ""
-        
-        citations_html = "<div class='citations-section'><b>Citations:</b><br>"
-        for i, citation in enumerate(citations, 1):
-            title = citation.get('title', '')
-            url = citation.get('url', '')
-            authors = citation.get('authors', [])
-            year = citation.get('year', '')
+    def format_response(self, response_data: Dict[str, Any]) -> str:
+        """Format the response with citations and safety disclaimer"""
+        if not response_data:
+            return "I apologize, but I couldn't generate a response at this time. Please try again."
             
-            citation_text = f"[{i}] "
-            if authors:
-                citation_text += f"{', '.join(authors)}. "
-            citation_text += f'"{title}"'
-            if year:
-                citation_text += f" ({year})"
-            if url:
-                citation_text += f' <a href="{url}" target="_blank">[Link]</a>'
-            
-            citations_html += f"{citation_text}<br>"
-        citations_html += "</div>"
+        content = response_data["content"]
+        citations = response_data["citations"]
         
-        return citations_html
+        formatted_content = f"{content}\n\n"
+        
+        if citations:
+            formatted_content += '<div class="citations-section">\n<h4>Sources:</h4>\n'
+            for i, citation in enumerate(citations, 1):
+                formatted_content += f"""
+                <div class="citation-item">
+                    <div class="citation-title">{i}. {citation['title']}</div>
+                    <div class="citation-url">{citation['url']}</div>
+                    {f'<div class="citation-publisher">{citation.get("publisher", "")}</div>' if citation.get("publisher") else ""}
+                </div>
+                """
+            formatted_content += '</div>\n'
+        
+        formatted_content += '\n<div class="disclaimer">Disclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan.</div>'
+        
+        return formatted_content
 
     def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
@@ -225,6 +114,41 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             if any(keyword in query_lower for keyword in keywords):
                 return category
         return "general"
+
+    def process_query(self, user_query: str) -> Dict[str, Any]:
+        """Process user query through PPLX with GLP-1 validation and citations"""
+        try:
+            if not user_query.strip():
+                return {
+                    "status": "error",
+                    "message": "Please enter a valid question."
+                }
+          
+            with st.spinner('🔍 Retrieving and validating information about GLP-1 medications...'):
+                response_data = self.get_pplx_response(user_query)
+            
+            if not response_data:
+                return {
+                    "status": "error",
+                    "message": "Failed to retrieve information about GLP-1 medications."
+                }
+            
+            query_category = self.categorize_query(user_query)
+            formatted_response = self.format_response(response_data)
+            
+            return {
+                "status": "success",
+                "query_category": query_category,
+                "original_query": user_query,
+                "response": formatted_response,
+                "citations": response_data.get("citations", [])
+            }
+            
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Error processing query: {str(e)}"
+            }
 
 def set_page_style():
     """Set page style using custom CSS"""
@@ -259,20 +183,63 @@ def set_page_style():
             margin-bottom: 0.5rem;
             display: inline-block;
         }
-        .citations-section {
-            background-color: #fff3e0;
+        .stAlert {
+            background-color: #ff5252;
+            color: white;
             padding: 1rem;
             border-radius: 0.5rem;
-            margin-top: 1rem;
-            border-left: 4px solid #ff9800;
+            margin: 1rem 0;
+        }
+        .citations-section {
+            background-color: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 0.8rem;
+            margin-top: 1.5rem;
+            border-left: 4px solid #9c27b0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .citations-section h4 {
+            color: #333;
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 0.5rem;
+        }
+        .citation-item {
+            margin: 1rem 0;
+            padding: 0.8rem;
+            background-color: white;
+            border-radius: 0.5rem;
+            border: 1px solid #e0e0e0;
+            transition: all 0.2s ease;
+        }
+        .citation-item:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+        .citation-title {
+            color: #1976d2;
+            font-weight: bold;
+            margin-bottom: 0.3rem;
+            font-size: 1rem;
+        }
+        .citation-url {
+            color: #666;
             font-size: 0.9rem;
+            word-break: break-all;
+            margin-bottom: 0.3rem;
+        }
+        .citation-publisher {
+            color: #43a047;
+            font-size: 0.8rem;
+            font-weight: 500;
         }
         .disclaimer {
             background-color: #fff3e0;
             padding: 1rem;
             border-radius: 0.5rem;
+            margin-top: 1.5rem;
             border-left: 4px solid #ff9800;
-            margin: 1rem 0;
             font-size: 0.9rem;
         }
         .info-box {
@@ -280,6 +247,11 @@ def set_page_style():
             padding: 1rem;
             border-radius: 0.5rem;
             margin: 1rem 0;
+        }
+        .processing-status {
+            color: #1976d2;
+            font-style: italic;
+            margin: 0.5rem 0;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -325,24 +297,32 @@ def main():
             with col1:
                 submit_button = st.button("Get Answer", key="submit")
             
-            if submit_button and user_input:
-                st.markdown(f"""
-                <div class="chat-message user-message">
-                    <b>Your Question:</b><br>{user_input}
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Create a placeholder for the streaming response
-                response_placeholder = st.empty()
-                
-                # Process the query with streaming
-                response = bot.process_streaming_query(user_input, response_placeholder)
-                
-                if response["status"] == "success":
-                    st.session_state.chat_history.append({
-                        "query": user_input,
-                        "response": response
-                    })
+            if submit_button:
+                if user_input:
+                    response = bot.process_query(user_input)
+                    
+                    if response["status"] == "success":
+                        st.session_state.chat_history.append({
+                            "query": user_input,
+                            "response": response
+                        })
+                        
+                        st.markdown(f"""
+                        <div class="chat-message user-message">
+                            <b>Your Question:</b><br>{user_input}
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        st.markdown(f"""
+                        <div class="chat-message bot-message">
+                            <div class="category-tag">{response["query_category"].upper()}</div><br>
+                            <b>Response:</b><br>{response["response"]}
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.error(response["message"])
+                else:
+                    st.warning("Please enter a question about GLP-1 medications.")
         
         if st.session_state.chat_history:
             st.markdown("---")
