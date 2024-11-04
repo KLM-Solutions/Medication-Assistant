@@ -39,70 +39,146 @@ Review and enhance the information about GLP-1 medications only.
 Maintain a professional yet approachable tone, emphasizing both expertise and emotional support.
 """
 
-    def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
-        """Stream response from PPLX API with sources"""
-        try:
-            payload = {
-                "model": self.pplx_model,
-                "messages": [
-                    {"role": "system", "content": self.pplx_system_prompt},
-                    {"role": "user", "content": f"{query}\n\nPlease include sources for the information provided."}
-                ],
-                "temperature": 0.1,
-                "max_tokens": 1500,
-                "stream": True  # Enable streaming
-            }
-            
-            response = requests.post(
-                "https://api.perplexity.ai/chat/completions",
-                headers=self.pplx_headers,
-                json=payload,
-                stream=True
-            )
-            
-            response.raise_for_status()
-            accumulated_content = ""
-            
-            for line in response.iter_lines():
-                if line:
-                    line = line.decode('utf-8')
-                    if line.startswith('data: '):
-                        try:
-                            json_str = line[6:]  # Remove 'data: ' prefix
-                            if json_str.strip() == '[DONE]':
-                                break
+def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
+    """Stream response from PPLX API with sources in JSON format"""
+    try:
+        payload = {
+            "model": self.pplx_model,
+            "messages": [
+                {"role": "system", "content": f"{self.pplx_system_prompt}\nProvide the response in JSON format with the following structure: {{'response': {{'opening': '', 'medical_info': '', 'safety': '', 'closing': ''}}, 'sources': []}}"},
+                {"role": "user", "content": f"{query}\n\nPlease structure the response in JSON format."}
+            ],
+            "temperature": 0.1,
+            "max_tokens": 1500,
+            "stream": True
+        }
+        
+        response = requests.post(
+            "https://api.perplexity.ai/chat/completions",
+            headers=self.pplx_headers,
+            json=payload,
+            stream=True
+        )
+        
+        response.raise_for_status()
+        accumulated_content = ""
+        
+        for line in response.iter_lines():
+            if line:
+                line = line.decode('utf-8')
+                if line.startswith('data: '):
+                    try:
+                        json_str = line[6:]  # Remove 'data: ' prefix
+                        if json_str.strip() == '[DONE]':
+                            break
+                        
+                        chunk = json.loads(json_str)
+                        if chunk['choices'][0]['finish_reason'] is not None:
+                            break
                             
-                            chunk = json.loads(json_str)
-                            if chunk['choices'][0]['finish_reason'] is not None:
-                                break
-                                
-                            content = chunk['choices'][0]['delta'].get('content', '')
-                            if content:
-                                accumulated_content += content
+                        content = chunk['choices'][0]['delta'].get('content', '')
+                        if content:
+                            accumulated_content += content
+                            try:
+                                # Try to parse the accumulated content as JSON
+                                parsed_json = json.loads(accumulated_content)
+                                yield {
+                                    "type": "content",
+                                    "data": content,
+                                    "accumulated": parsed_json
+                                }
+                            except json.JSONDecodeError:
+                                # If not complete JSON yet, yield as is
                                 yield {
                                     "type": "content",
                                     "data": content,
                                     "accumulated": accumulated_content
                                 }
-                        except json.JSONDecodeError:
-                            continue
-            
-            # Split final content into main content and sources
-            content_parts = accumulated_content.split("\nSources:", 1)
-            main_content = content_parts[0].strip()
-            sources = content_parts[1].strip() if len(content_parts) > 1 else "no sources provided"
-            
+                    except json.JSONDecodeError:
+                        continue
+        
+        try:
+            # Parse the final accumulated content as JSON
+            final_json = json.loads(accumulated_content)
             yield {
                 "type": "complete",
-                "content": main_content,
-                "sources": sources
+                "content": final_json["response"],
+                "sources": final_json["sources"]
             }
-            
-        except Exception as e:
+        except json.JSONDecodeError:
+            # If JSON parsing fails, return a structured error
             yield {
                 "type": "error",
-                "message": f"Error communicating with PPLX: {str(e)}"
+                "message": "Failed to parse response as JSON"
             }
+        
+    except Exception as e:
+        yield {
+            "type": "error",
+            "message": f"Error communicating with PPLX: {str(e)}"
+        }
+
+def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
+    """Process user query with streaming response in JSON format"""
+    try:
+        if not user_query.strip():
+            return {
+                "status": "error",
+                "message": "Please enter a valid question."
+            }
+        
+        query_category = self.categorize_query(user_query)
+        full_response = {}
+        sources = []
+        
+        # Initialize the placeholder content
+        message_placeholder = placeholder.empty()
+        
+        # Stream the response
+        for chunk in self.stream_pplx_response(user_query):
+            if chunk["type"] == "error":
+                placeholder.error(chunk["message"])
+                return {"status": "error", "message": chunk["message"]}
+            
+            elif chunk["type"] == "content":
+                if isinstance(chunk["accumulated"], dict):
+                    full_response = chunk["accumulated"].get("response", {})
+                    sources = chunk["accumulated"].get("sources", [])
+                    
+                    # Update the placeholder with structured JSON response
+                    message_placeholder.json({
+                        "category": query_category.upper(),
+                        "response": full_response,
+                        "sources": sources
+                    })
+            
+            elif chunk["type"] == "complete":
+                full_response = chunk["content"]
+                sources = chunk["sources"]
+                
+                # Final JSON response with disclaimer
+                final_response = {
+                    "category": query_category.upper(),
+                    "response": full_response,
+                    "sources": sources,
+                    "disclaimer": "Always consult your healthcare provider before making any changes to your medication or treatment plan."
+                }
+                
+                message_placeholder.json(final_response)
+        
+        return {
+            "status": "success",
+            "query_category": query_category,
+            "original_query": user_query,
+            "response": full_response,
+            "sources": sources
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error processing query: {str(e)}"
+        }
 
     def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
         """Process user query with streaming response"""
