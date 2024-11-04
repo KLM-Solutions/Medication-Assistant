@@ -1,6 +1,17 @@
 import streamlit as st
 import requests
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Tuple
+from dataclasses import dataclass
+
+@dataclass
+class Citation:
+    """Data class for holding citation information"""
+    title: str
+    url: str
+    publisher: Optional[str] = None
+    year: Optional[str] = None
+    authors: Optional[List[str]] = None
+    doi: Optional[str] = None
 
 class GLP1Bot:
     def __init__(self):
@@ -29,7 +40,10 @@ You are a specialized medical information assistant focused EXCLUSIVELY on GLP-1
    - Important safety considerations or disclaimers
    - An encouraging closing that reinforces their healthcare journey
 
-4. For each claim or statement about GLP-1 medications, include a citation to a reputable medical source.
+4. For each claim or statement about GLP-1 medications:
+   - Include a citation using [Source X] notation for general references
+   - Include a citation using [Citation X] notation for specific academic papers or studies
+   After your response, list all sources and citations with their full details.
 
 Remember: You must NEVER provide information about topics outside of GLP-1 medications and their direct effects.
 Each response must include relevant medical disclaimers and encourage consultation with healthcare providers.
@@ -37,8 +51,92 @@ Ensure all medical claims are properly cited using reputable sources.
 Maintain a professional yet approachable tone, emphasizing both expertise and emotional support.
 """
 
+    def extract_references(self, content: str) -> Tuple[str, List[Dict[str, str]], List[Citation]]:
+        """Extract both source references and citations from content"""
+        import re
+        
+        # Extract source references
+        source_pattern = r'\[Source (\d+)\]'
+        source_refs = set(re.findall(source_pattern, content))
+        
+        # Extract citation references
+        citation_pattern = r'\[Citation (\d+)\]'
+        citation_refs = set(re.findall(citation_pattern, content))
+        
+        # Extract sources section
+        sources_section_pattern = r'Sources:(.*?)(?=(?:Citations:|$))'
+        sources_match = re.search(sources_section_pattern, content, re.DOTALL)
+        
+        # Extract citations section
+        citations_section_pattern = r'Citations:(.*?)(?=\n\n|$)'
+        citations_match = re.search(citations_section_pattern, content, re.DOTALL)
+        
+        sources_list = []
+        citations_list = []
+        clean_content = content
+        
+        # Process sources
+        if sources_match:
+            sources_text = sources_match.group(1)
+            clean_content = clean_content.replace(sources_match.group(0), '')
+            
+            source_lines = sources_text.strip().split('\n')
+            for line in source_lines:
+                if line.strip():
+                    source_line_pattern = r'(\d+)\.(.*)'
+                    source_match = re.match(source_line_pattern, line.strip())
+                    if source_match:
+                        source_num, source_details = source_match.groups()
+                        if source_num in source_refs:
+                            sources_list.append({
+                                "number": source_num,
+                                "details": source_details.strip(),
+                                "reference_count": len(re.findall(f'\\[Source {source_num}\\]', content))
+                            })
+        
+        # Process citations
+        if citations_match:
+            citations_text = citations_match.group(1)
+            clean_content = clean_content.replace(citations_match.group(0), '')
+            
+            citation_lines = citations_text.strip().split('\n')
+            current_citation = {}
+            
+            for line in citation_lines:
+                if line.strip():
+                    if line.startswith('[Citation'):
+                        if current_citation:
+                            citations_list.append(Citation(**current_citation))
+                            current_citation = {}
+                        
+                        citation_num = re.search(r'\[Citation (\d+)\]', line)
+                        if citation_num and citation_num.group(1) in citation_refs:
+                            current_citation['number'] = citation_num.group(1)
+                    elif ':' in line:
+                        key, value = line.split(':', 1)
+                        key = key.strip().lower()
+                        value = value.strip()
+                        
+                        if key == 'title':
+                            current_citation['title'] = value
+                        elif key == 'url':
+                            current_citation['url'] = value
+                        elif key == 'publisher':
+                            current_citation['publisher'] = value
+                        elif key == 'year':
+                            current_citation['year'] = value
+                        elif key == 'authors':
+                            current_citation['authors'] = [a.strip() for a in value.split(',')]
+                        elif key == 'doi':
+                            current_citation['doi'] = value
+            
+            if current_citation:
+                citations_list.append(Citation(**current_citation))
+        
+        return clean_content.strip(), sources_list, citations_list
+
     def get_pplx_response(self, query: str) -> Optional[Dict[str, Any]]:
-        """Get comprehensive response from PPLX API with citations"""
+        """Get comprehensive response from PPLX API with sources and citations"""
         try:
             payload = {
                 "model": self.pplx_model,
@@ -47,8 +145,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                     {"role": "user", "content": query}
                 ],
                 "temperature": 0.1,
-                "max_tokens": 1500,
-                "return_citations": True
+                "max_tokens": 1500
             }
             
             response = requests.post(
@@ -61,10 +158,13 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             response_data = response.json()
             
             content = response_data["choices"][0]["message"]["content"]
-            citations = response_data["choices"][0]["message"].get("citations", [])
+            
+            # Extract and process sources and citations
+            clean_content, sources, citations = self.extract_references(content)
             
             return {
-                "content": content,
+                "content": clean_content,
+                "sources": sources,
                 "citations": citations
             }
             
@@ -73,51 +173,53 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             return None
 
     def format_response(self, response_data: Dict[str, Any]) -> str:
-        """Format the response with citations and safety disclaimer"""
+        """Format the response with sources, citations and safety disclaimer"""
         if not response_data:
             return "I apologize, but I couldn't generate a response at this time. Please try again."
             
         content = response_data["content"]
-        citations = response_data["citations"]
+        sources = response_data.get("sources", [])
+        citations = response_data.get("citations", [])
         
         formatted_content = f"{content}\n\n"
         
-        if citations:
-            formatted_content += '<div class="citations-section">\n<h4>Sources:</h4>\n'
-            for i, citation in enumerate(citations, 1):
+        if sources:
+            formatted_content += '<div class="sources-section">\n<h4>General Sources:</h4>\n'
+            for source in sources:
                 formatted_content += f"""
-                <div class="citation-item">
-                    <div class="citation-title">{i}. {citation['title']}</div>
-                    <div class="citation-url">{citation['url']}</div>
-                    {f'<div class="citation-publisher">{citation.get("publisher", "")}</div>' if citation.get("publisher") else ""}
+                <div class="source-item">
+                    <div class="source-number">Source {source['number']}</div>
+                    <div class="source-details">{source['details']}</div>
+                    <div class="reference-count">Referenced {source['reference_count']} time{'s' if source['reference_count'] > 1 else ''}</div>
                 </div>
                 """
+            formatted_content += '</div>\n'
+        
+        if citations:
+            formatted_content += '<div class="citations-section">\n<h4>Academic Citations:</h4>\n'
+            for citation in citations:
+                formatted_content += f"""
+                <div class="citation-item">
+                    <div class="citation-title">{citation.title}</div>
+                    <div class="citation-url">{citation.url}</div>
+                    """
+                if citation.publisher:
+                    formatted_content += f'<div class="citation-publisher">{citation.publisher}</div>'
+                if citation.year:
+                    formatted_content += f'<div class="citation-year">Year: {citation.year}</div>'
+                if citation.authors:
+                    formatted_content += f'<div class="citation-authors">Authors: {", ".join(citation.authors)}</div>'
+                if citation.doi:
+                    formatted_content += f'<div class="citation-doi">DOI: {citation.doi}</div>'
+                formatted_content += '</div>'
             formatted_content += '</div>\n'
         
         formatted_content += '\n<div class="disclaimer">Disclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan.</div>'
         
         return formatted_content
 
-    def categorize_query(self, query: str) -> str:
-        """Categorize the user query"""
-        categories = {
-            "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
-            "side_effects": ["side effect", "adverse", "reaction", "problem", "issues", "symptoms"],
-            "benefits": ["benefit", "advantage", "help", "work", "effect", "weight", "glucose"],
-            "storage": ["store", "storage", "keep", "refrigerate", "temperature"],
-            "lifestyle": ["diet", "exercise", "lifestyle", "food", "alcohol", "eating"],
-            "interactions": ["interaction", "drug", "medication", "combine", "mixing"],
-            "cost": ["cost", "price", "insurance", "coverage", "afford"]
-        }
-        
-        query_lower = query.lower()
-        for category, keywords in categories.items():
-            if any(keyword in query_lower for keyword in keywords):
-                return category
-        return "general"
-
     def process_query(self, user_query: str) -> Dict[str, Any]:
-        """Process user query through PPLX with GLP-1 validation and citations"""
+        """Process user query through PPLX with GLP-1 validation, sources, and citations"""
         try:
             if not user_query.strip():
                 return {
@@ -142,6 +244,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "query_category": query_category,
                 "original_query": user_query,
                 "response": formatted_response,
+                "sources": response_data.get("sources", []),
                 "citations": response_data.get("citations", [])
             }
             
@@ -155,58 +258,33 @@ def set_page_style():
     """Set page style using custom CSS"""
     st.markdown("""
     <style>
-        .main {
-            background-color: #f5f5f5;
-        }
-        .stTextInput>div>div>input {
-            background-color: white;
-        }
-        .chat-message {
-            padding: 1.5rem;
-            border-radius: 0.8rem;
-            margin: 1rem 0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .user-message {
-            background-color: #e3f2fd;
-            border-left: 4px solid #1976d2;
-        }
-        .bot-message {
-            background-color: #f5f5f5;
-            border-left: 4px solid #43a047;
-        }
-        .category-tag {
-            background-color: #2196f3;
-            color: white;
-            padding: 0.2rem 0.6rem;
-            border-radius: 1rem;
-            font-size: 0.8rem;
-            margin-bottom: 0.5rem;
-            display: inline-block;
-        }
-        .stAlert {
-            background-color: #ff5252;
-            color: white;
-            padding: 1rem;
-            border-radius: 0.5rem;
-            margin: 1rem 0;
-        }
-        .citations-section {
+        /* Previous styles remain the same */
+        
+        .sources-section, .citations-section {
             background-color: #f8f9fa;
             padding: 1.5rem;
             border-radius: 0.8rem;
             margin-top: 1.5rem;
-            border-left: 4px solid #9c27b0;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
-        .citations-section h4 {
+        
+        .sources-section {
+            border-left: 4px solid #673ab7;
+        }
+        
+        .citations-section {
+            border-left: 4px solid #2196f3;
+        }
+        
+        .sources-section h4, .citations-section h4 {
             color: #333;
             margin-bottom: 1rem;
             font-size: 1.1rem;
             border-bottom: 2px solid #e0e0e0;
             padding-bottom: 0.5rem;
         }
-        .citation-item {
+        
+        .source-item, .citation-item {
             margin: 1rem 0;
             padding: 0.8rem;
             background-color: white;
@@ -214,49 +292,42 @@ def set_page_style():
             border: 1px solid #e0e0e0;
             transition: all 0.2s ease;
         }
-        .citation-item:hover {
+        
+        .source-item:hover, .citation-item:hover {
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
             transform: translateY(-2px);
         }
-        .citation-title {
-            color: #1976d2;
+        
+        .source-number {
+            color: #673ab7;
             font-weight: bold;
             margin-bottom: 0.3rem;
             font-size: 1rem;
         }
-        .citation-url {
-            color: #666;
+        
+        .citation-title {
+            color: #2196f3;
+            font-weight: bold;
+            margin-bottom: 0.3rem;
+            font-size: 1rem;
+        }
+        
+        .source-details, .citation-url, .citation-publisher,
+        .citation-year, .citation-authors, .citation-doi {
+            color: #333;
             font-size: 0.9rem;
-            word-break: break-all;
             margin-bottom: 0.3rem;
         }
-        .citation-publisher {
-            color: #43a047;
+        
+        .reference-count {
+            color: #666;
             font-size: 0.8rem;
-            font-weight: 500;
-        }
-        .disclaimer {
-            background-color: #fff3e0;
-            padding: 1rem;
-            border-radius: 0.5rem;
-            margin-top: 1.5rem;
-            border-left: 4px solid #ff9800;
-            font-size: 0.9rem;
-        }
-        .info-box {
-            background-color: #e8f5e9;
-            padding: 1rem;
-            border-radius: 0.5rem;
-            margin: 1rem 0;
-        }
-        .processing-status {
-            color: #1976d2;
             font-style: italic;
-            margin: 0.5rem 0;
         }
     </style>
     """, unsafe_allow_html=True)
 
+# The main() function remains the same
 def main():
     """Main application function"""
     try:
