@@ -40,132 +40,207 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
 """
 
     def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
-        """Stream response from PPLX API with sources"""
-        try:
-            payload = {
-                "model": self.pplx_model,
-                "messages": [
-                    {"role": "system", "content": self.pplx_system_prompt},
-                    {"role": "user", "content": f"{query}\n\nPlease include sources for the information provided."}
-                ],
-                "temperature": 0.1,
-                "max_tokens": 1500,
-                "stream": True  # Enable streaming
+    """Stream response from PPLX API with explicit citation handling"""
+    try:
+        payload = {
+            "model": self.pplx_model,
+            "messages": [
+                {"role": "system", "content": self.pplx_system_prompt},
+                {"role": "user", "content": f"{query}\n\nPlease include citations and references for all factual claims."}
+            ],
+            "temperature": 0.1,
+            "max_tokens": 1500,
+            "stream": True,
+            "extra_params": {
+                "return_citations": True,  # Request citations in response
+                "citation_format": "academic"  # Request academic-style citations
             }
-            
-            response = requests.post(
-                "https://api.perplexity.ai/chat/completions",
-                headers=self.pplx_headers,
-                json=payload,
-                stream=True
-            )
-            
-            response.raise_for_status()
-            accumulated_content = ""
-            
-            for line in response.iter_lines():
-                if line:
-                    line = line.decode('utf-8')
-                    if line.startswith('data: '):
-                        try:
-                            json_str = line[6:]  # Remove 'data: ' prefix
-                            if json_str.strip() == '[DONE]':
-                                break
+        }
+        
+        response = requests.post(
+            "https://api.perplexity.ai/chat/completions",
+            headers=self.pplx_headers,
+            json=payload,
+            stream=True
+        )
+        
+        response.raise_for_status()
+        accumulated_content = ""
+        accumulated_citations = []
+        
+        for line in response.iter_lines():
+            if line:
+                line = line.decode('utf-8')
+                if line.startswith('data: '):
+                    try:
+                        json_str = line[6:]
+                        if json_str.strip() == '[DONE]':
+                            break
+                        
+                        chunk = json.loads(json_str)
+                        if chunk['choices'][0]['finish_reason'] is not None:
+                            break
                             
-                            chunk = json.loads(json_str)
-                            if chunk['choices'][0]['finish_reason'] is not None:
-                                break
-                                
-                            content = chunk['choices'][0]['delta'].get('content', '')
-                            if content:
-                                accumulated_content += content
-                                yield {
-                                    "type": "content",
-                                    "data": content,
-                                    "accumulated": accumulated_content
-                                }
-                        except json.JSONDecodeError:
-                            continue
-            
-            # Split final content into main content and sources
-            content_parts = accumulated_content.split("\nSources:", 1)
-            main_content = content_parts[0].strip()
-            sources = content_parts[1].strip() if len(content_parts) > 1 else "no sources provided"
-            
-            yield {
-                "type": "complete",
-                "content": main_content,
-                "sources": sources
-            }
-            
-        except Exception as e:
-            yield {
-                "type": "error",
-                "message": f"Error communicating with PPLX: {str(e)}"
-            }
+                        # Extract content and any citations from the chunk
+                        content = chunk['choices'][0]['delta'].get('content', '')
+                        citations = self.extract_citations(content)
+                        
+                        if content:
+                            accumulated_content += content
+                            accumulated_citations.extend(citations)
+                            
+                            yield {
+                                "type": "content",
+                                "data": content,
+                                "accumulated": accumulated_content,
+                                "citations": accumulated_citations
+                            }
+                    except json.JSONDecodeError:
+                        continue
+        
+        # Format final content and citations
+        formatted_content = self.format_content_with_citations(accumulated_content)
+        formatted_citations = self.format_citations(accumulated_citations)
+        
+        yield {
+            "type": "complete",
+            "content": formatted_content,
+            "citations": formatted_citations
+        }
+        
+    except Exception as e:
+        yield {
+            "type": "error",
+            "message": f"Error communicating with PPLX: {str(e)}"
+        }
 
-    def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
-        """Process user query with streaming response"""
-        try:
-            if not user_query.strip():
-                return {
-                    "status": "error",
-                    "message": "Please enter a valid question."
-                }
-            
-            
-            query_category = self.categorize_query(user_query)
-            full_response = ""
-            sources = ""
-            
-            # Initialize the placeholder content
-            message_placeholder = placeholder.empty()
-            
-            # Stream the response
-            for chunk in self.stream_pplx_response(user_query):
-                if chunk["type"] == "error":
-                    placeholder.error(chunk["message"])
-                    return {"status": "error", "message": chunk["message"]}
-                
-                elif chunk["type"] == "content":
-                    full_response = chunk["accumulated"]
-                    # Update the placeholder with the accumulated text
-                    message_placeholder.markdown(f"""
-                    <div class="chat-message bot-message">
-                        <div class="category-tag">{query_category.upper()}</div><br>
-                        <b>Response:</b><br>{full_response}
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                elif chunk["type"] == "complete":
-                    full_response = chunk["content"]
-                    sources = chunk["sources"]
-                    
-                    # Update final response with sources and disclaimer
-                    disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
-                    message_placeholder.markdown(f"""
-                    <div class="chat-message bot-message">
-                        <div class="category-tag">{query_category.upper()}</div><br>
-                        <b>Response:</b><br>{full_response}{disclaimer}
-                        <div class="sources-section">
-                            <b>Sources:</b><br>{sources}
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-            
-            return {
-                "status": "success",
-                "query_category": query_category,
-                "original_query": user_query,
-                "response": f"{full_response}{disclaimer}",
-                "sources": sources
-            }
-            
-        except Exception as e:
+def extract_citations(self, text: str) -> list[dict]:
+    """Extract citations from text using regex patterns"""
+    citations = []
+    
+    # Pattern for inline citations [n]
+    inline_pattern = r'\[(\d+)\]'
+    # Pattern for reference entries
+    ref_pattern = r'\[(\d+)\]\s+(.*?)(?=\[\d+\]|\Z)'
+    
+    # Find all inline citations
+    inline_citations = re.finditer(inline_pattern, text)
+    for match in inline_citations:
+        citations.append({
+            "citation_number": match.group(1),
+            "position": match.start()
+        })
+    
+    # Find all reference entries
+    references = re.finditer(ref_pattern, text, re.DOTALL)
+    for match in references:
+        citations.append({
+            "citation_number": match.group(1),
+            "reference": match.group(2).strip()
+        })
+    
+    return citations
+    def format_content_with_citations(self, content: str) -> str:
+    """Format content with properly styled citation markers"""
+    # Replace plain citation markers with styled ones
+    formatted_content = re.sub(
+        r'\[(\d+)\]',
+        r'<sup class="citation-marker" data-citation="\1">[\1]</sup>',
+        content
+    )
+    return formatted_content
+
+   def format_citations(self, citations: list[dict]) -> str:
+    """Format citations into HTML with proper styling"""
+    # Group citations by number and combine inline/reference information
+    citation_dict = {}
+    for citation in citations:
+        num = citation.get("citation_number")
+        if num:
+            if num not in citation_dict:
+                citation_dict[num] = {}
+            if "reference" in citation:
+                citation_dict[num]["reference"] = citation["reference"]
+            if "position" in citation:
+                citation_dict[num]["position"] = citation["position"]
+    
+    # Generate HTML for citations
+    html_citations = []
+    for num in sorted(citation_dict.keys(), key=int):
+        citation = citation_dict[num]
+        if "reference" in citation:
+            html_citations.append(f"""
+                <div class="citation-entry" id="citation-{num}">
+                    <span class="citation-number">[{num}]</span>
+                    <span class="citation-text">{citation['reference']}</span>
+                </div>
+            """)
+    
+    return "\n".join(html_citations) if html_citations else "No citations provided"
+
+   def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
+    """Process user query with streaming response and enhanced citations"""
+    try:
+        if not user_query.strip():
             return {
                 "status": "error",
-                "message": f"Error processing query: {str(e)}"
+                "message": "Please enter a valid question."
             }
+        
+        query_category = self.categorize_query(user_query)
+        full_response = ""
+        citations = ""
+        
+        message_placeholder = placeholder.empty()
+        
+        for chunk in self.stream_pplx_response(user_query):
+            if chunk["type"] == "error":
+                placeholder.error(chunk["message"])
+                return {"status": "error", "message": chunk["message"]}
+            
+            elif chunk["type"] == "content":
+                full_response = chunk["accumulated"]
+                citations = self.format_citations(chunk.get("citations", []))
+                message_placeholder.markdown(f"""
+                <div class="chat-message bot-message">
+                    <div class="category-tag">{query_category.upper()}</div>
+                    <div class="response-content">{self.format_content_with_citations(full_response)}</div>
+                    <div class="citations-section">
+                        <h4>References</h4>
+                        {citations}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            elif chunk["type"] == "complete":
+                full_response = chunk["content"]
+                citations = chunk["citations"]
+                
+                disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
+                message_placeholder.markdown(f"""
+                <div class="chat-message bot-message">
+                    <div class="category-tag">{query_category.upper()}</div>
+                    <div class="response-content">{self.format_content_with_citations(full_response)}{disclaimer}</div>
+                    <div class="citations-section">
+                        <h4>References</h4>
+                        {citations}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        return {
+            "status": "success",
+            "query_category": query_category,
+            "original_query": user_query,
+            "response": full_response,
+            "citations": citations
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error processing query: {str(e)}"
+        }
 
     def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
