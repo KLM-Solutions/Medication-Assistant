@@ -2,6 +2,67 @@ import streamlit as st
 import requests
 import json
 from typing import Dict, Any, Optional, Generator
+import re
+from typing import List, Dict, Optional
+
+def extract_and_format_sources(sources_text: str) -> str:
+    """
+    Extract sources from the LLM response and convert them into formatted hyperlinks.
+    
+    Args:
+        sources_text (str): Raw sources text from the LLM response
+        
+    Returns:
+        str: HTML formatted string containing the hyperlinks
+        
+    Example input:
+        "1. FDA Prescribing Information (2023): https://www.fda.gov/ozempic
+         2. Clinical Study Results: https://clinicaltrials.gov/study123"
+    """
+    # Initialize formatted sources list
+    formatted_sources = []
+    
+    # Split into individual source entries
+    source_entries = sources_text.strip().split('\n')
+    
+    # Regular expressions for matching different source formats
+    url_pattern = r'https?://[^\s<>"]+(?:(?![\s<>"\[\]]))'
+    numbered_pattern = r'^\d+\.\s*(.+?):\s*(https?://\S+)'
+    bracketed_pattern = r'\[(.*?)\]\((https?://\S+)\)'
+    
+    for entry in source_entries:
+        entry = entry.strip()
+        if not entry:
+            continue
+            
+        # Try to match different source formats
+        numbered_match = re.match(numbered_pattern, entry)
+        bracketed_match = re.match(bracketed_pattern, entry)
+        url_match = re.search(url_pattern, entry)
+        
+        if numbered_match:
+            # Handle numbered format: "1. Title: URL"
+            title, url = numbered_match.groups()
+            formatted_sources.append(f'<a href="{url}" target="_blank">{title}</a>')
+            
+        elif bracketed_match:
+            # Handle markdown format: "[Title](URL)"
+            title, url = bracketed_match.groups()
+            formatted_sources.append(f'<a href="{url}" target="_blank">{title}</a>')
+            
+        elif url_match:
+            # Handle plain URL format
+            url = url_match.group(0)
+            # Extract title from text before URL if possible
+            title_match = re.match(r'(.*?)\s*https?://', entry)
+            title = title_match.group(1).strip(' :.-') if title_match else url
+            formatted_sources.append(f'<a href="{url}" target="_blank">{title}</a>')
+    
+    # Join all formatted sources with line breaks
+    if not formatted_sources:
+        return "<em>No sources provided</em>"
+    
+    return "<br>".join(f"• {source}" for source in formatted_sources)
 
 class GLP1Bot:
     def __init__(self):
@@ -42,69 +103,72 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
 """
 
     def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
-        """Stream response from PPLX API with sources"""
-        try:
-            payload = {
-                "model": self.pplx_model,
-                "messages": [
-                    {"role": "system", "content": self.pplx_system_prompt},
-                    {"role": "user", "content": f"{query}\n\nPlease include sources for the information provided."}
-                ],
-                "temperature": 0.1,
-                "max_tokens": 1500,
-                "stream": True  # Enable streaming
-            }
-            
-            response = requests.post(
-                "https://api.perplexity.ai/chat/completions",
-                headers=self.pplx_headers,
-                json=payload,
-                stream=True
-            )
-            
-            response.raise_for_status()
-            accumulated_content = ""
-            
-            for line in response.iter_lines():
-                if line:
-                    line = line.decode('utf-8')
-                    if line.startswith('data: '):
-                        try:
-                            json_str = line[6:]  # Remove 'data: ' prefix
-                            if json_str.strip() == '[DONE]':
-                                break
+    """Stream response from PPLX API with sources"""
+    try:
+        payload = {
+            "model": self.pplx_model,
+            "messages": [
+                {"role": "system", "content": self.pplx_system_prompt},
+                {"role": "user", "content": f"{query}\n\nPlease include sources for the information provided."}
+            ],
+            "temperature": 0.1,
+            "max_tokens": 1500,
+            "stream": True
+        }
+        
+        response = requests.post(
+            "https://api.perplexity.ai/chat/completions",
+            headers=self.pplx_headers,
+            json=payload,
+            stream=True
+        )
+        
+        response.raise_for_status()
+        accumulated_content = ""
+        
+        for line in response.iter_lines():
+            if line:
+                line = line.decode('utf-8')
+                if line.startswith('data: '):
+                    try:
+                        json_str = line[6:]  # Remove 'data: ' prefix
+                        if json_str.strip() == '[DONE]':
+                            break
+                        
+                        chunk = json.loads(json_str)
+                        if chunk['choices'][0]['finish_reason'] is not None:
+                            break
                             
-                            chunk = json.loads(json_str)
-                            if chunk['choices'][0]['finish_reason'] is not None:
-                                break
-                                
-                            content = chunk['choices'][0]['delta'].get('content', '')
-                            if content:
-                                accumulated_content += content
-                                yield {
-                                    "type": "content",
-                                    "data": content,
-                                    "accumulated": accumulated_content
-                                }
-                        except json.JSONDecodeError:
-                            continue
-            
-            # Split final content into main content and sources
-            content_parts = accumulated_content.split("\nSources:", 1)
-            main_content = content_parts[0].strip()
-            sources = content_parts[1].strip() if len(content_parts) > 1 else "no sources provided"
-            
-            yield {
-                "type": "complete",
-                "content": main_content,
-                "sources": sources
-            }
-            
-        except Exception as e:
-            yield {
-                "type": "error",
-                "message": f"Error communicating with PPLX: {str(e)}"
-            }
+                        content = chunk['choices'][0]['delta'].get('content', '')
+                        if content:
+                            accumulated_content += content
+                            yield {
+                                "type": "content",
+                                "data": content,
+                                "accumulated": accumulated_content
+                            }
+                    except json.JSONDecodeError:
+                        continue
+        
+        # Split final content into main content and sources
+        content_parts = accumulated_content.split("\nSources:", 1)
+        main_content = content_parts[0].strip()
+        raw_sources = content_parts[1].strip() if len(content_parts) > 1 else "no sources provided"
+        
+        # Format sources as hyperlinks
+        formatted_sources = extract_and_format_sources(raw_sources)
+        
+        yield {
+            "type": "complete",
+            "content": main_content,
+            "sources": formatted_sources  # Now contains HTML formatted hyperlinks
+        }
+        
+    except Exception as e:
+        yield {
+            "type": "error",
+            "message": f"Error communicating with PPLX: {str(e)}"
+        }
 
     def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
         """Process user query with streaming response"""
