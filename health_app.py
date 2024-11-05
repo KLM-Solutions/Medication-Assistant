@@ -337,7 +337,7 @@ def main():
                         "response": response
                     })
         
-        if st.session_state.chat_history:
+if st.session_state.chat_history:
     st.markdown("---")
     st.markdown("### Previous Questions")
     for i, chat in enumerate(reversed(st.session_state.chat_history[:-1]), 1):
