@@ -119,10 +119,10 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             # Split final content into main content and sources
             content_parts = accumulated_content.split("\nSources:", 1)
             main_content = content_parts[0].strip()
-            sources = content_parts[1].strip()
-            # Format sources as hyperlinks
-            formatted_sources = self.format_sources_as_hyperlinks(sources) if len(content_parts) > 1 else "sources provided"
+            sources = content_parts[1].strip() if len(content_parts) > 1 else "No sources provided"
             
+            # Format sources as hyperlinks
+            formatted_sources = self.format_sources_as_hyperlinks(sources)
             
             yield {
                 "type": "complete",
@@ -193,7 +193,6 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "status": "error",
                 "message": f"Error processing query: {str(e)}"
             }
-
     def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
       
