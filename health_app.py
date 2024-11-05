@@ -382,4 +382,8 @@ def main():
                     """, unsafe_allow_html=True)
     
     except Exception as e:
-        st.error(f"An unexpected error occurred: {str(
+        st.error(f"An unexpected error occurred: {str(e)}")
+        st.error("Please refresh the page and try again.")
+
+if __name__ == "__main__":
+    main()
