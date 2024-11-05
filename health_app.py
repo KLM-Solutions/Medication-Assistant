@@ -90,7 +90,9 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             )
             
             response.raise_for_status()
-            accumulated_content = ""
+           accumulated_content = ""
+            found_sources = False
+            sources_text = ""
             
             for line in response.iter_lines():
                 if line:
@@ -107,7 +109,20 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                                 
                             content = chunk['choices'][0]['delta'].get('content', '')
                             if content:
-                                accumulated_content += content
+                                # Check if we've hit the sources section
+                                if "Sources:" in content:
+                                    found_sources = True
+                                    parts = content.split("Sources:", 1)
+                                    if len(parts) > 1:
+                                        accumulated_content += parts[0]
+                                        sources_text += parts[1]
+                                    else:
+                                        accumulated_content += parts[0]
+                                elif found_sources:
+                                    sources_text += content
+                                else:
+                                    accumulated_content += content
+                                
                                 yield {
                                     "type": "content",
                                     "data": content,
@@ -116,17 +131,12 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                         except json.JSONDecodeError:
                             continue
             
-            # Split final content into main content and sources
-            content_parts = accumulated_content.split("\nSources:", 1)
-            main_content = content_parts[0].strip()
-            sources = content_parts[1].strip() if len(content_parts) > 1 else "No sources provided"
-            
             # Format sources as hyperlinks
-            formatted_sources = self.format_sources_as_hyperlinks(sources)
+            formatted_sources = self.format_sources_as_hyperlinks(sources_text.strip()) if sources_text.strip() else "No sources provided"
             
             yield {
                 "type": "complete",
-                "content": main_content,
+                "content": accumulated_content.strip(),
                 "sources": formatted_sources
             }
             
@@ -167,16 +177,21 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 
                 elif chunk["type"] == "complete":
                     full_response = chunk["content"]
-                    sources = chunk["sources"]  # This will now contain formatted hyperlinks
+                    sources = chunk["sources"]
+                    
+                    # Only show sources section if we actually have sources
+                    sources_section = f"""
+                        <div class="sources-section">
+                            <b>Sources:</b><br>{sources}
+                        </div>
+                    """ if sources and sources != "No sources provided" else ""
                     
                     disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
                     message_placeholder.markdown(f"""
                     <div class="chat-message bot-message">
                         <div class="category-tag">{query_category.upper()}</div><br>
                         <b>Response:</b><br>{full_response}{disclaimer}
-                        <div class="sources-section">
-                            <b>Sources:</b><br>{sources}
-                        </div>
+                        {sources_section}
                     </div>
                     """, unsafe_allow_html=True)
             
