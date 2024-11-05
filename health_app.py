@@ -187,13 +187,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                     if sources and sources != "No sources provided":
                         # Remove any HTML tags from sources and format properly
                         clean_sources = re.sub(r'<[^>]+>', '', sources)
-                        # Format sources as markdown links
-                        formatted_sources = f"""
-                        <div class="sources-section">
-                            <b>Sources:</b><br>
-                            {clean_sources}
-                        </div>
-                        """
+                       
                     
                     disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
                     
