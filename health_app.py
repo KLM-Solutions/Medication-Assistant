@@ -90,7 +90,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             )
             
             response.raise_for_status()
-           accumulated_content = ""
+            accumulated_content = ""
             found_sources = False
             sources_text = ""
             
