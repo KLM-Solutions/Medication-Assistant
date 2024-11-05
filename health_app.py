@@ -1,8 +1,7 @@
 import streamlit as st
 import requests
 import json
-import re
-from typing import Dict, Any, Optional, Generator, List
+from typing import Dict, Any, Optional, Generator
 
 class GLP1Bot:
     def __init__(self):
@@ -31,54 +30,42 @@ You are a specialized medical information assistant focused EXCLUSIVELY on GLP-1
    - Important safety considerations or disclaimers
    - An encouraging closing that reinforces their healthcare journey
 
-4. Always provide source citations which is related to the generated response. Importantly only provide sources for about GLP-1 medications
+4. Always provide source citiations which is related to the generated response. Importantly only provide sources for about GLP-1 medications
 5. Provide response in a simple manner that is easy to understand at preferably a 11th grade literacy level with reduced pharmaceutical or medical jargon
-6. Always Return sources in a numbered list format with titles and URLs, like:
-   1. FDA Prescribing Information (2023): https://www.fda.gov/example
-   2. Clinical Guidelines: https://guidelines.org/example
+6. Always Return sources in a hyperlink format
 
 Remember: You must NEVER provide information about topics outside of GLP-1 medications and their direct effects.
 Each response must include relevant medical disclaimers and encourage consultation with healthcare providers.
+You are a medical content validator specialized in GLP-1 medications.
+Review and enhance the information about GLP-1 medications only.
+Maintain a professional yet approachable tone, emphasizing both expertise and emotional support.
 """
 
-    def extract_and_format_sources(self, sources_text: str) -> str:
-        """
-        Extract sources from the LLM response and convert them into formatted hyperlinks.
-        """
-        formatted_sources = []
-        source_entries = sources_text.strip().split('\n')
+    def format_sources_as_hyperlinks(self, sources_text: str) -> str:
+        """Convert source text into formatted hyperlinks"""
+        # Common patterns for URLs in the text
+        url_pattern = r'https?://[^\s<>"]+|www\.[^\s<>"]+'
         
-        url_pattern = r'https?://[^\s<>"]+(?:(?![\s<>"\[\]]))'
-        numbered_pattern = r'^\d+\.\s*(.+?):\s*(https?://\S+)'
-        bracketed_pattern = r'\[(.*?)\]\((https?://\S+)\)'
+        # Find all URLs in the text
+        urls = re.finditer(url_pattern, sources_text)
+        formatted_text = sources_text
         
-        for entry in source_entries:
-            entry = entry.strip()
-            if not entry:
-                continue
-                
-            numbered_match = re.match(numbered_pattern, entry)
-            bracketed_match = re.match(bracketed_pattern, entry)
-            url_match = re.search(url_pattern, entry)
+        # Replace each URL with a markdown hyperlink
+        for url_match in urls:
+            url = url_match.group(0)
+            # Extract title if it appears before the URL (common format: "Title: URL")
+            title_match = re.search(rf'([^.!?\n]+)(?=\s*{re.escape(url)})', formatted_text)
+            title = title_match.group(1).strip() if title_match else url
             
-            if numbered_match:
-                title, url = numbered_match.groups()
-                formatted_sources.append(f'<a href="{url}" target="_blank">{title}</a>')
-                
-            elif bracketed_match:
-                title, url = bracketed_match.groups()
-                formatted_sources.append(f'<a href="{url}" target="_blank">{title}</a>')
-                
-            elif url_match:
-                url = url_match.group(0)
-                title_match = re.match(r'(.*?)\s*https?://', entry)
-                title = title_match.group(1).strip(' :.-') if title_match else url
-                formatted_sources.append(f'<a href="{url}" target="_blank">{title}</a>')
+            # Create markdown hyperlink
+            hyperlink = f'[{title}]({url})'
+            # Replace the URL and its title (if found) with the hyperlink
+            if title_match:
+                formatted_text = formatted_text.replace(f'{title_match.group(0)} {url}', hyperlink)
+            else:
+                formatted_text = formatted_text.replace(url, hyperlink)
         
-        if not formatted_sources:
-            return "<em>No sources provided</em>"
-        
-        return "<br>".join(f"• {source}" for source in formatted_sources)
+        return formatted_text
 
     def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
         """Stream response from PPLX API with sources"""
@@ -87,7 +74,7 @@ Each response must include relevant medical disclaimers and encourage consultati
                 "model": self.pplx_model,
                 "messages": [
                     {"role": "system", "content": self.pplx_system_prompt},
-                    {"role": "user", "content": f"{query}\n\nPlease include sources for the information provided."}
+                    {"role": "user", "content": f"{query}\n\nPlease include sources for the information provided, formatted as 'Title: URL' on separate lines."}
                 ],
                 "temperature": 0.1,
                 "max_tokens": 1500,
@@ -128,11 +115,13 @@ Each response must include relevant medical disclaimers and encourage consultati
                         except json.JSONDecodeError:
                             continue
             
+            # Split final content into main content and sources
             content_parts = accumulated_content.split("\nSources:", 1)
             main_content = content_parts[0].strip()
-            raw_sources = content_parts[1].strip() if len(content_parts) > 1 else "no sources provided"
+            sources = content_parts[1].strip() if len(content_parts) > 1 else "No sources provided"
             
-            formatted_sources = self.extract_and_format_sources(raw_sources)
+            # Format sources as hyperlinks
+            formatted_sources = self.format_sources_as_hyperlinks(sources)
             
             yield {
                 "type": "complete",
@@ -177,7 +166,7 @@ Each response must include relevant medical disclaimers and encourage consultati
                 
                 elif chunk["type"] == "complete":
                     full_response = chunk["content"]
-                    sources = chunk["sources"]
+                    sources = chunk["sources"]  # This will now contain formatted hyperlinks
                     
                     disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
                     message_placeholder.markdown(f"""
@@ -206,6 +195,7 @@ Each response must include relevant medical disclaimers and encourage consultati
 
     def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
+      
         categories = {
             "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
             "side_effects": ["side effect", "adverse", "reaction", "problem", "issues", "symptoms"],
@@ -221,7 +211,6 @@ Each response must include relevant medical disclaimers and encourage consultati
             if any(keyword in query_lower for keyword in keywords):
                 return category
         return "general"
-
 def set_page_style():
     """Set page style using custom CSS"""
     st.markdown("""
@@ -262,13 +251,6 @@ def set_page_style():
             margin-top: 1rem;
             border-left: 4px solid #ff9800;
         }
-        .sources-section a {
-            color: #1565c0;
-            text-decoration: none;
-        }
-        .sources-section a:hover {
-            text-decoration: underline;
-        }
         .disclaimer {
             background-color: #fff3e0;
             padding: 1rem;
@@ -295,7 +277,7 @@ def main():
             layout="wide"
         )
         
-        set_page_style()
+        set_page_style()  # Your existing style function remains the same
         
         if 'pplx' not in st.secrets:
             st.error('Required PPLX API key not found. Please configure the PPLX API key in your secrets.')
@@ -334,7 +316,10 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
                 
+                # Create a placeholder for the streaming response
                 response_placeholder = st.empty()
+                
+                # Process the query with streaming
                 response = bot.process_streaming_query(user_input, response_placeholder)
                 
                 if response["status"] == "success":
