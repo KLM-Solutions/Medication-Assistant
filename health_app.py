@@ -146,7 +146,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "message": f"Error communicating with PPLX: {str(e)}"
             }
 
-    def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
+def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
     """Process user query with streaming response"""
     try:
         if not user_query.strip():
