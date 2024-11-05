@@ -31,14 +31,14 @@ You are a specialized medical information assistant focused EXCLUSIVELY on GLP-1
    - Important safety considerations or disclaimers
    - An encouraging closing that reinforces their healthcare journey
 
-4. IMPORTANT: Always format your sources as proper hyperlinks using Markdown format. Examples:
-   - [FDA Ozempic Prescribing Information](https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/209637s012lbl.pdf)
-   - [Clinical Study on GLP-1 Efficacy](https://pubmed.ncbi.nlm.nih.gov/example)
+4. Always provide source citations in the following format for each source:
+   [Title](URL) - Brief description
    
-   DO NOT provide plain text URLs or citations. Every source must be a clickable hyperlink.
-
+   Example:
+   [FDA Ozempic Prescribing Information](https://www.accessdata.fda.gov/drugsatfda_docs/label/2017/209637lbl.pdf) - Official FDA documentation
+   
 5. Provide response in a simple manner that is easy to understand at preferably a 11th grade literacy level with reduced pharmaceutical or medical jargon
-6. List your sources at the end under a "Sources:" heading, with each source on a new line as a markdown hyperlink
+6. Ensure all sources are provided as clickable hyperlinks with descriptive text
 
 Remember: You must NEVER provide information about topics outside of GLP-1 medications and their direct effects.
 Each response must include relevant medical disclaimers and encourage consultation with healthcare providers.
@@ -47,34 +47,34 @@ Review and enhance the information about GLP-1 medications only.
 Maintain a professional yet approachable tone, emphasizing both expertise and emotional support.
 """
 
-    def format_sources(self, sources: str) -> str:
-        """Format sources to ensure they are in hyperlink format"""
-        # If sources are already in markdown hyperlink format, return as is
-        if all(('[' in line and '](' in line and ')' in line) for line in sources.split('\n') if line.strip()):
-            return sources
-        
-        # Convert plain URLs to hyperlinks
+    def format_sources(self, sources_text: str) -> str:
+        """Format sources text to ensure proper hyperlink formatting"""
+        # Split sources into individual entries
+        sources_list = sources_text.strip().split('\n')
         formatted_sources = []
-        for line in sources.split('\n'):
-            line = line.strip()
-            if not line:
+        
+        for source in sources_list:
+            # Skip empty lines
+            if not source.strip():
                 continue
                 
-            # Check if it contains a URL
-            url_pattern = r'https?://[^\s<>"]+|www\.[^\s<>"]+'
-            urls = re.findall(url_pattern, line)
-            
-            if urls:
-                for url in urls:
-                    # Create a title from the text before the URL or use a generic title
-                    title = line.split(url)[0].strip().rstrip(':,- ') or "Source"
-                    formatted_sources.append(f"[{title}]({url})")
+            # Check if source is already in markdown link format
+            if re.match(r'\[.*\]\(.*\)', source):
+                formatted_sources.append(source)
             else:
-                # If no URL is found, try to extract title and URL from citation format
-                parts = line.split('.',1)
-                if len(parts) > 1:
-                    formatted_sources.append(f"[{parts[0].strip()}](https://pubmed.ncbi.nlm.nih.gov/)")
-
+                # Try to extract URL and create markdown link
+                url_match = re.search(r'https?://\S+', source)
+                if url_match:
+                    url = url_match.group(0)
+                    # Remove URL from text and clean up
+                    text = source.replace(url, '').strip()
+                    text = text.strip('- .')
+                    if not text:
+                        text = "Source"
+                    formatted_sources.append(f"[{text}]({url})")
+                else:
+                    formatted_sources.append(source)
+        
         return '\n'.join(formatted_sources)
 
     def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
@@ -84,7 +84,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "model": self.pplx_model,
                 "messages": [
                     {"role": "system", "content": self.pplx_system_prompt},
-                    {"role": "user", "content": f"{query}\n\nPlease include sources as markdown hyperlinks."}
+                    {"role": "user", "content": f"{query}\n\nPlease include sources for the information provided."}
                 ],
                 "temperature": 0.1,
                 "max_tokens": 1500,
@@ -145,25 +145,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "message": f"Error communicating with PPLX: {str(e)}"
             }
 
-def categorize_query(self, query: str) -> str:
-        """Categorize the user query"""
-        categories = {
-            "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
-            "side_effects": ["side effect", "adverse", "reaction", "problem", "issues", "symptoms"],
-            "benefits": ["benefit", "advantage", "help", "work", "effect", "weight", "glucose"],
-            "storage": ["store", "storage", "keep", "refrigerate", "temperature"],
-            "lifestyle": ["diet", "exercise", "lifestyle", "food", "alcohol", "eating"],
-            "interactions": ["interaction", "drug", "medication", "combine", "mixing"],
-            "cost": ["cost", "price", "insurance", "coverage", "afford"]
-        }
-        
-        query_lower = query.lower()
-        for category, keywords in categories.items():
-            if any(keyword in query_lower for keyword in keywords):
-                return category
-        return "general"
-
-def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
+    def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
         """Process user query with streaming response"""
         try:
             if not user_query.strip():
@@ -225,6 +207,24 @@ def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any
                 "message": f"Error processing query: {str(e)}"
             }
 
+    def categorize_query(self, query: str) -> str:
+        """Categorize the user query"""
+      
+        categories = {
+            "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
+            "side_effects": ["side effect", "adverse", "reaction", "problem", "issues", "symptoms"],
+            "benefits": ["benefit", "advantage", "help", "work", "effect", "weight", "glucose"],
+            "storage": ["store", "storage", "keep", "refrigerate", "temperature"],
+            "lifestyle": ["diet", "exercise", "lifestyle", "food", "alcohol", "eating"],
+            "interactions": ["interaction", "drug", "medication", "combine", "mixing"],
+            "cost": ["cost", "price", "insurance", "coverage", "afford"]
+        }
+        
+        query_lower = query.lower()
+        for category, keywords in categories.items():
+            if any(keyword in query_lower for keyword in keywords):
+                return category
+        return "general"
 def set_page_style():
     """Set page style using custom CSS"""
     st.markdown("""
@@ -279,29 +279,6 @@ def set_page_style():
             border-radius: 0.5rem;
             margin: 1rem 0;
         }
-        /* Add styles for hyperlinks in sources section */
-        .sources-section a {
-            color: #1976d2;
-            text-decoration: none;
-            border-bottom: 1px solid #1976d2;
-            transition: all 0.2s ease;
-        }
-        .sources-section a:hover {
-            color: #0d47a1;
-            border-bottom: 2px solid #0d47a1;
-        }
-        /* Add loading animation for streaming */
-        @keyframes typing {
-            0% { opacity: .2; }
-            20% { opacity: 1; }
-            100% { opacity: .2; }
-        }
-        .typing-animation span {
-            animation: typing 1.4s infinite;
-            animation-fill-mode: both;
-        }
-        .typing-animation span:nth-child(2) { animation-delay: .2s; }
-        .typing-animation span:nth-child(3) { animation-delay: .4s; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -314,7 +291,7 @@ def main():
             layout="wide"
         )
         
-        set_page_style()
+        set_page_style()  # Your existing style function remains the same
         
         if 'pplx' not in st.secrets:
             st.error('Required PPLX API key not found. Please configure the PPLX API key in your secrets.')
@@ -382,12 +359,6 @@ def main():
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
-        
-        # Add a clear chat history button
-        if st.session_state.chat_history:
-            if st.button("Clear Chat History"):
-                st.session_state.chat_history = []
-                st.experimental_rerun()
     
     except Exception as e:
         st.error(f"An unexpected error occurred: {str(e)}")
