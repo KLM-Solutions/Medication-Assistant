@@ -1,68 +1,8 @@
 import streamlit as st
 import requests
 import json
-from typing import Dict, Any, Optional, Generator
 import re
-from typing import List, Dict, Optional
-
-def extract_and_format_sources(sources_text: str) -> str:
-    """
-    Extract sources from the LLM response and convert them into formatted hyperlinks.
-    
-    Args:
-        sources_text (str): Raw sources text from the LLM response
-        
-    Returns:
-        str: HTML formatted string containing the hyperlinks
-        
-    Example input:
-        "1. FDA Prescribing Information (2023): https://www.fda.gov/ozempic
-         2. Clinical Study Results: https://clinicaltrials.gov/study123"
-    """
-    # Initialize formatted sources list
-    formatted_sources = []
-    
-    # Split into individual source entries
-    source_entries = sources_text.strip().split('\n')
-    
-    # Regular expressions for matching different source formats
-    url_pattern = r'https?://[^\s<>"]+(?:(?![\s<>"\[\]]))'
-    numbered_pattern = r'^\d+\.\s*(.+?):\s*(https?://\S+)'
-    bracketed_pattern = r'\[(.*?)\]\((https?://\S+)\)'
-    
-    for entry in source_entries:
-        entry = entry.strip()
-        if not entry:
-            continue
-            
-        # Try to match different source formats
-        numbered_match = re.match(numbered_pattern, entry)
-        bracketed_match = re.match(bracketed_pattern, entry)
-        url_match = re.search(url_pattern, entry)
-        
-        if numbered_match:
-            # Handle numbered format: "1. Title: URL"
-            title, url = numbered_match.groups()
-            formatted_sources.append(f'<a href="{url}" target="_blank">{title}</a>')
-            
-        elif bracketed_match:
-            # Handle markdown format: "[Title](URL)"
-            title, url = bracketed_match.groups()
-            formatted_sources.append(f'<a href="{url}" target="_blank">{title}</a>')
-            
-        elif url_match:
-            # Handle plain URL format
-            url = url_match.group(0)
-            # Extract title from text before URL if possible
-            title_match = re.match(r'(.*?)\s*https?://', entry)
-            title = title_match.group(1).strip(' :.-') if title_match else url
-            formatted_sources.append(f'<a href="{url}" target="_blank">{title}</a>')
-    
-    # Join all formatted sources with line breaks
-    if not formatted_sources:
-        return "<em>No sources provided</em>"
-    
-    return "<br>".join(f"• {source}" for source in formatted_sources)
+from typing import Dict, Any, Optional, Generator, List
 
 class GLP1Bot:
     def __init__(self):
@@ -91,84 +31,120 @@ You are a specialized medical information assistant focused EXCLUSIVELY on GLP-1
    - Important safety considerations or disclaimers
    - An encouraging closing that reinforces their healthcare journey
 
-4. Always provide source citiations which is related to the generated response. Importantly only provide sources for about GLP-1 medications
+4. Always provide source citations which is related to the generated response. Importantly only provide sources for about GLP-1 medications
 5. Provide response in a simple manner that is easy to understand at preferably a 11th grade literacy level with reduced pharmaceutical or medical jargon
-6. Always Return sources in a hyperlink format
+6. Always Return sources in a numbered list format with titles and URLs, like:
+   1. FDA Prescribing Information (2023): https://www.fda.gov/example
+   2. Clinical Guidelines: https://guidelines.org/example
 
 Remember: You must NEVER provide information about topics outside of GLP-1 medications and their direct effects.
 Each response must include relevant medical disclaimers and encourage consultation with healthcare providers.
-You are a medical content validator specialized in GLP-1 medications.
-Review and enhance the information about GLP-1 medications only.
-Maintain a professional yet approachable tone, emphasizing both expertise and emotional support.
 """
 
-def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
-    """Stream response from PPLX API with sources"""
-    try:
-        payload = {
-            "model": self.pplx_model,
-            "messages": [
-                {"role": "system", "content": self.pplx_system_prompt},
-                {"role": "user", "content": f"{query}\n\nPlease include sources for the information provided."}
-            ],
-            "temperature": 0.1,
-            "max_tokens": 1500,
-            "stream": True
-        }
+    def extract_and_format_sources(self, sources_text: str) -> str:
+        """
+        Extract sources from the LLM response and convert them into formatted hyperlinks.
+        """
+        formatted_sources = []
+        source_entries = sources_text.strip().split('\n')
         
-        response = requests.post(
-            "https://api.perplexity.ai/chat/completions",
-            headers=self.pplx_headers,
-            json=payload,
-            stream=True
-        )
+        url_pattern = r'https?://[^\s<>"]+(?:(?![\s<>"\[\]]))'
+        numbered_pattern = r'^\d+\.\s*(.+?):\s*(https?://\S+)'
+        bracketed_pattern = r'\[(.*?)\]\((https?://\S+)\)'
         
-        response.raise_for_status()
-        accumulated_content = ""
+        for entry in source_entries:
+            entry = entry.strip()
+            if not entry:
+                continue
+                
+            numbered_match = re.match(numbered_pattern, entry)
+            bracketed_match = re.match(bracketed_pattern, entry)
+            url_match = re.search(url_pattern, entry)
+            
+            if numbered_match:
+                title, url = numbered_match.groups()
+                formatted_sources.append(f'<a href="{url}" target="_blank">{title}</a>')
+                
+            elif bracketed_match:
+                title, url = bracketed_match.groups()
+                formatted_sources.append(f'<a href="{url}" target="_blank">{title}</a>')
+                
+            elif url_match:
+                url = url_match.group(0)
+                title_match = re.match(r'(.*?)\s*https?://', entry)
+                title = title_match.group(1).strip(' :.-') if title_match else url
+                formatted_sources.append(f'<a href="{url}" target="_blank">{title}</a>')
         
-        for line in response.iter_lines():
-            if line:
-                line = line.decode('utf-8')
-                if line.startswith('data: '):
-                    try:
-                        json_str = line[6:]  # Remove 'data: ' prefix
-                        if json_str.strip() == '[DONE]':
-                            break
-                        
-                        chunk = json.loads(json_str)
-                        if chunk['choices'][0]['finish_reason'] is not None:
-                            break
+        if not formatted_sources:
+            return "<em>No sources provided</em>"
+        
+        return "<br>".join(f"• {source}" for source in formatted_sources)
+
+    def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
+        """Stream response from PPLX API with sources"""
+        try:
+            payload = {
+                "model": self.pplx_model,
+                "messages": [
+                    {"role": "system", "content": self.pplx_system_prompt},
+                    {"role": "user", "content": f"{query}\n\nPlease include sources for the information provided."}
+                ],
+                "temperature": 0.1,
+                "max_tokens": 1500,
+                "stream": True
+            }
+            
+            response = requests.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers=self.pplx_headers,
+                json=payload,
+                stream=True
+            )
+            
+            response.raise_for_status()
+            accumulated_content = ""
+            
+            for line in response.iter_lines():
+                if line:
+                    line = line.decode('utf-8')
+                    if line.startswith('data: '):
+                        try:
+                            json_str = line[6:]
+                            if json_str.strip() == '[DONE]':
+                                break
                             
-                        content = chunk['choices'][0]['delta'].get('content', '')
-                        if content:
-                            accumulated_content += content
-                            yield {
-                                "type": "content",
-                                "data": content,
-                                "accumulated": accumulated_content
-                            }
-                    except json.JSONDecodeError:
-                        continue
-        
-        # Split final content into main content and sources
-        content_parts = accumulated_content.split("\nSources:", 1)
-        main_content = content_parts[0].strip()
-        raw_sources = content_parts[1].strip() if len(content_parts) > 1 else "no sources provided"
-        
-        # Format sources as hyperlinks
-        formatted_sources = extract_and_format_sources(raw_sources)
-        
-        yield {
-            "type": "complete",
-            "content": main_content,
-            "sources": formatted_sources  # Now contains HTML formatted hyperlinks
-        }
-        
-    except Exception as e:
-        yield {
-            "type": "error",
-            "message": f"Error communicating with PPLX: {str(e)}"
-        }
+                            chunk = json.loads(json_str)
+                            if chunk['choices'][0]['finish_reason'] is not None:
+                                break
+                                
+                            content = chunk['choices'][0]['delta'].get('content', '')
+                            if content:
+                                accumulated_content += content
+                                yield {
+                                    "type": "content",
+                                    "data": content,
+                                    "accumulated": accumulated_content
+                                }
+                        except json.JSONDecodeError:
+                            continue
+            
+            content_parts = accumulated_content.split("\nSources:", 1)
+            main_content = content_parts[0].strip()
+            raw_sources = content_parts[1].strip() if len(content_parts) > 1 else "no sources provided"
+            
+            formatted_sources = self.extract_and_format_sources(raw_sources)
+            
+            yield {
+                "type": "complete",
+                "content": main_content,
+                "sources": formatted_sources
+            }
+            
+        except Exception as e:
+            yield {
+                "type": "error",
+                "message": f"Error communicating with PPLX: {str(e)}"
+            }
 
     def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
         """Process user query with streaming response"""
@@ -179,15 +155,12 @@ def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, No
                     "message": "Please enter a valid question."
                 }
             
-            
             query_category = self.categorize_query(user_query)
             full_response = ""
             sources = ""
             
-            # Initialize the placeholder content
             message_placeholder = placeholder.empty()
             
-            # Stream the response
             for chunk in self.stream_pplx_response(user_query):
                 if chunk["type"] == "error":
                     placeholder.error(chunk["message"])
@@ -195,7 +168,6 @@ def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, No
                 
                 elif chunk["type"] == "content":
                     full_response = chunk["accumulated"]
-                    # Update the placeholder with the accumulated text
                     message_placeholder.markdown(f"""
                     <div class="chat-message bot-message">
                         <div class="category-tag">{query_category.upper()}</div><br>
@@ -207,7 +179,6 @@ def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, No
                     full_response = chunk["content"]
                     sources = chunk["sources"]
                     
-                    # Update final response with sources and disclaimer
                     disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
                     message_placeholder.markdown(f"""
                     <div class="chat-message bot-message">
@@ -235,7 +206,6 @@ def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, No
 
     def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
-      
         categories = {
             "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
             "side_effects": ["side effect", "adverse", "reaction", "problem", "issues", "symptoms"],
@@ -251,6 +221,7 @@ def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, No
             if any(keyword in query_lower for keyword in keywords):
                 return category
         return "general"
+
 def set_page_style():
     """Set page style using custom CSS"""
     st.markdown("""
@@ -291,6 +262,13 @@ def set_page_style():
             margin-top: 1rem;
             border-left: 4px solid #ff9800;
         }
+        .sources-section a {
+            color: #1565c0;
+            text-decoration: none;
+        }
+        .sources-section a:hover {
+            text-decoration: underline;
+        }
         .disclaimer {
             background-color: #fff3e0;
             padding: 1rem;
@@ -317,7 +295,7 @@ def main():
             layout="wide"
         )
         
-        set_page_style()  # Your existing style function remains the same
+        set_page_style()
         
         if 'pplx' not in st.secrets:
             st.error('Required PPLX API key not found. Please configure the PPLX API key in your secrets.')
@@ -356,10 +334,7 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Create a placeholder for the streaming response
                 response_placeholder = st.empty()
-                
-                # Process the query with streaming
                 response = bot.process_streaming_query(user_input, response_placeholder)
                 
                 if response["status"] == "success":
