@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import json
+import re 
 from typing import Dict, Any, Optional, Generator
 
 class GLP1Bot:
