@@ -149,59 +149,60 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "message": f"Error communicating with PPLX: {str(e)}"
             }
 
-def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
-    """Process user query with streaming response"""
-    try:
-        if not user_query.strip():
+    def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
+        """Process user query with streaming response"""
+        try:
+            if not user_query.strip():
+                return {
+                    "status": "error",
+                    "message": "Please enter a valid question."
+                }
+            
+            query_category = self.categorize_query(user_query)
+            full_response = ""
+            
+            message_placeholder = placeholder.empty()
+            
+            for chunk in self.stream_pplx_response(user_query):
+                if chunk["type"] == "error":
+                    placeholder.error(chunk["message"])
+                    return {"status": "error", "message": chunk["message"]}
+                
+                elif chunk["type"] == "content":
+                    full_response = chunk["accumulated"]
+                    message_placeholder.markdown(f"""
+                    <div class="chat-message bot-message">
+                        <div class="category-tag">{query_category.upper()}</div><br>
+                        <b>Response:</b><br>{full_response}
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                elif chunk["type"] == "complete":
+                    full_response = chunk["content"]
+                    disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
+                    
+                    formatted_response = f"""
+                    <div class="chat-message bot-message">
+                        <div class="category-tag">{query_category.upper()}</div><br>
+                        <b>Response:</b><br>{full_response}{disclaimer}
+                    </div>
+                    """
+                    
+                    message_placeholder.markdown(formatted_response, unsafe_allow_html=True)
+            
+            return {
+                "status": "success",
+                "query_category": query_category,
+                "original_query": user_query,
+                "response": f"{full_response}{disclaimer}"
+            }
+            
+        except Exception as e:
             return {
                 "status": "error",
-                "message": "Please enter a valid question."
+                "message": f"Error processing query: {str(e)}"
             }
-        
-        query_category = self.categorize_query(user_query)
-        full_response = ""
-        
-        message_placeholder = placeholder.empty()
-        
-        for chunk in self.stream_pplx_response(user_query):
-            if chunk["type"] == "error":
-                placeholder.error(chunk["message"])
-                return {"status": "error", "message": chunk["message"]}
-            
-            elif chunk["type"] == "content":
-                full_response = chunk["accumulated"]
-                message_placeholder.markdown(f"""
-                <div class="chat-message bot-message">
-                    <div class="category-tag">{query_category.upper()}</div><br>
-                    <b>Response:</b><br>{full_response}
-                </div>
-                """, unsafe_allow_html=True)
-            
-            elif chunk["type"] == "complete":
-                full_response = chunk["content"]
-                disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
-                
-                formatted_response = f"""
-                <div class="chat-message bot-message">
-                    <div class="category-tag">{query_category.upper()}</div><br>
-                    <b>Response:</b><br>{full_response}{disclaimer}
-                </div>
-                """
-                
-                message_placeholder.markdown(formatted_response, unsafe_allow_html=True)
-        
-        return {
-            "status": "success",
-            "query_category": query_category,
-            "original_query": user_query,
-            "response": f"{full_response}{disclaimer}"
-        }
-        
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Error processing query: {str(e)}"
-        }
+
     def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
         categories = {
@@ -337,21 +338,20 @@ def main():
                         "response": response
                     })
         
-if st.session_state.chat_history:
-    st.markdown("---")
-    st.markdown("### Previous Questions")
-    for i, chat in enumerate(reversed(st.session_state.chat_history[:-1]), 1):
-        with st.expander(f"Question {len(st.session_state.chat_history) - i}: {chat['query'][:50]}..."):
-            st.markdown(f"""
-            <div class="chat-message user-message">
-                <b>Your Question:</b><br>{chat['query']}
-            </div>
-            <div class="chat-message bot-message">
-                <div class="category-tag">{chat['response']['query_category'].upper()}</div><br>
-                <b>Response:</b><br>{chat['response']['response']}
-            </div>
-            """, unsafe_allow_html=True)
-    
+        if st.session_state.chat_history:
+            st.markdown("---")
+            st.markdown("### Previous Questions")
+            for i, chat in enumerate(reversed(st.session_state.chat_history[:-1]), 1):
+                with st.expander(f"Question {len(st.session_state.chat_history) - i}: {chat['query'][:50]}..."):
+                    st.markdown(f"""
+                    <div class="chat-message user-message">
+                        <b>Your Question:</b><br>{chat['query']}
+                    </div>
+                    <div class="chat-message bot-message">
+                        <div class="category-tag">{chat['response']['query_category'].upper()}</div><br>
+                        <b>Response:</b><br>{chat['response']['response']}
+                    </div>
+                    """, unsafe_allow_html=True)
     except Exception as e:
         st.error(f"An unexpected error occurred: {str(e)}")
         st.error("Please refresh the page and try again.")
