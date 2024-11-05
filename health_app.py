@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
 import json
-import re
 from typing import Dict, Any, Optional, Generator
 
 class GLP1Bot:
@@ -31,14 +30,9 @@ You are a specialized medical information assistant focused EXCLUSIVELY on GLP-1
    - Important safety considerations or disclaimers
    - An encouraging closing that reinforces their healthcare journey
 
-4. Always provide source citations in the following format for each source:
-   
-   
-   Example:
-   (https://www.accessdata.fda.gov/drugsatfda_docs/label/2017/209637lbl.pdf) 
-   
+4. Always provide source citiations which is related to the generated response. Importantly only provide sources for about GLP-1 medications
 5. Provide response in a simple manner that is easy to understand at preferably a 11th grade literacy level with reduced pharmaceutical or medical jargon
-6. Ensure all sources are provided as clickable hyperlinks with descriptive text
+6. Always Return sources in a hyperlink format
 
 Remember: You must NEVER provide information about topics outside of GLP-1 medications and their direct effects.
 Each response must include relevant medical disclaimers and encourage consultation with healthcare providers.
@@ -46,36 +40,6 @@ You are a medical content validator specialized in GLP-1 medications.
 Review and enhance the information about GLP-1 medications only.
 Maintain a professional yet approachable tone, emphasizing both expertise and emotional support.
 """
-
-    def format_sources(self, sources_text: str) -> str:
-        """Format sources text to ensure proper hyperlink formatting"""
-        # Split sources into individual entries
-        sources_list = sources_text.strip().split('\n')
-        formatted_sources = []
-        
-        for source in sources_list:
-            # Skip empty lines
-            if not source.strip():
-                continue
-                
-            # Check if source is already in markdown link format
-            if re.match(r'\[.*\]\(.*\)', source):
-                formatted_sources.append(source)
-            else:
-                # Try to extract URL and create markdown link
-                url_match = re.search(r'https?://\S+', source)
-                if url_match:
-                    url = url_match.group(0)
-                    # Remove URL from text and clean up
-                    text = source.replace(url, '').strip()
-                    text = text.strip('- .')
-                    if not text:
-                        text = "Source"
-                    formatted_sources.append(f"[{text}]({url})")
-                else:
-                    formatted_sources.append(source)
-        
-        return '\n'.join(formatted_sources)
 
     def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
         """Stream response from PPLX API with sources"""
@@ -88,7 +52,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 ],
                 "temperature": 0.1,
                 "max_tokens": 1500,
-                "stream": True
+                "stream": True  # Enable streaming
             }
             
             response = requests.post(
@@ -106,7 +70,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                     line = line.decode('utf-8')
                     if line.startswith('data: '):
                         try:
-                            json_str = line[6:]
+                            json_str = line[6:]  # Remove 'data: ' prefix
                             if json_str.strip() == '[DONE]':
                                 break
                             
@@ -128,15 +92,12 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             # Split final content into main content and sources
             content_parts = accumulated_content.split("\nSources:", 1)
             main_content = content_parts[0].strip()
-            sources = content_parts[1].strip() if len(content_parts) > 1 else "No sources provided"
-            
-            # Format sources as hyperlinks
-            formatted_sources = self.format_sources(sources)
+            sources = content_parts[1].strip() if len(content_parts) > 1 else "no sources provided"
             
             yield {
                 "type": "complete",
                 "content": main_content,
-                "sources": formatted_sources
+                "sources": sources
             }
             
         except Exception as e:
@@ -153,6 +114,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                     "status": "error",
                     "message": "Please enter a valid question."
                 }
+            
             
             query_category = self.categorize_query(user_query)
             full_response = ""
