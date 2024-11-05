@@ -31,7 +31,7 @@ You are a specialized medical information assistant focused EXCLUSIVELY on GLP-1
    - Important safety considerations or disclaimers
    - An encouraging closing that reinforces their healthcare journey
 
-4. Always provide source citiations which is related to the generated response. Importantly only provide sources for about GLP-1 medications
+4. Always provide source citations which is related to the generated response. Importantly only provide sources for about GLP-1 medications
 5. Provide response in a simple manner that is easy to understand at preferably a 11th grade literacy level with reduced pharmaceutical or medical jargon
 6. Always Return sources in a hyperlink format
 
@@ -44,12 +44,15 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
 
     def format_sources_as_hyperlinks(self, sources_text: str) -> str:
         """Convert source text into formatted hyperlinks"""
+        # Clean any existing HTML tags
+        clean_text = re.sub(r'<[^>]+>', '', sources_text)
+        
         # Common patterns for URLs in the text
         url_pattern = r'https?://[^\s<>"]+|www\.[^\s<>"]+'
         
         # Find all URLs in the text
-        urls = re.finditer(url_pattern, sources_text)
-        formatted_text = sources_text
+        urls = re.finditer(url_pattern, clean_text)
+        formatted_text = clean_text
         
         # Replace each URL with a markdown hyperlink
         for url_match in urls:
@@ -146,80 +149,80 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "message": f"Error communicating with PPLX: {str(e)}"
             }
 
-def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
-    """Process user query with streaming response"""
-    try:
-        if not user_query.strip():
-            return {
-                "status": "error",
-                "message": "Please enter a valid question."
-            }
-        
-        query_category = self.categorize_query(user_query)
-        full_response = ""
-        sources = ""
-        
-        message_placeholder = placeholder.empty()
-        
-        for chunk in self.stream_pplx_response(user_query):
-            if chunk["type"] == "error":
-                placeholder.error(chunk["message"])
-                return {"status": "error", "message": chunk["message"]}
+    def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
+        """Process user query with streaming response"""
+        try:
+            if not user_query.strip():
+                return {
+                    "status": "error",
+                    "message": "Please enter a valid question."
+                }
             
-            elif chunk["type"] == "content":
-                full_response = chunk["accumulated"]
-                message_placeholder.markdown(f"""
-                <div class="chat-message bot-message">
-                    <div class="category-tag">{query_category.upper()}</div><br>
-                    <b>Response:</b><br>{full_response}
-                </div>
-                """, unsafe_allow_html=True)
+            query_category = self.categorize_query(user_query)
+            full_response = ""
+            sources = ""
             
-            elif chunk["type"] == "complete":
-                full_response = chunk["content"]
-                sources = chunk["sources"]
+            message_placeholder = placeholder.empty()
+            
+            for chunk in self.stream_pplx_response(user_query):
+                if chunk["type"] == "error":
+                    placeholder.error(chunk["message"])
+                    return {"status": "error", "message": chunk["message"]}
                 
-                # Clean and format sources before display
-                formatted_sources = ""
-                if sources and sources != "No sources provided":
-                    # Remove any HTML tags from sources and format properly
-                    clean_sources = re.sub(r'<[^>]+>', '', sources)
-                    # Format sources as markdown links
-                    formatted_sources = f"""
-                    <div class="sources-section">
-                        <b>Sources:</b><br>
-                        {clean_sources}
+                elif chunk["type"] == "content":
+                    full_response = chunk["accumulated"]
+                    message_placeholder.markdown(f"""
+                    <div class="chat-message bot-message">
+                        <div class="category-tag">{query_category.upper()}</div><br>
+                        <b>Response:</b><br>{full_response}
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                elif chunk["type"] == "complete":
+                    full_response = chunk["content"]
+                    sources = chunk["sources"]
+                    
+                    # Clean and format sources before display
+                    formatted_sources = ""
+                    if sources and sources != "No sources provided":
+                        # Remove any HTML tags from sources and format properly
+                        clean_sources = re.sub(r'<[^>]+>', '', sources)
+                        # Format sources as markdown links
+                        formatted_sources = f"""
+                        <div class="sources-section">
+                            <b>Sources:</b><br>
+                            {clean_sources}
+                        </div>
+                        """
+                    
+                    disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
+                    
+                    formatted_response = f"""
+                    <div class="chat-message bot-message">
+                        <div class="category-tag">{query_category.upper()}</div><br>
+                        <b>Response:</b><br>{full_response}{disclaimer}
+                        {formatted_sources}
                     </div>
                     """
-                
-                disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
-                
-                formatted_response = f"""
-                <div class="chat-message bot-message">
-                    <div class="category-tag">{query_category.upper()}</div><br>
-                    <b>Response:</b><br>{full_response}{disclaimer}
-                    {formatted_sources}
-                </div>
-                """
-                
-                message_placeholder.markdown(formatted_response, unsafe_allow_html=True)
-        
-        return {
-            "status": "success",
-            "query_category": query_category,
-            "original_query": user_query,
-            "response": f"{full_response}{disclaimer}",
-            "sources": sources
-        }
-        
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Error processing query: {str(e)}"
-        }
+                    
+                    message_placeholder.markdown(formatted_response, unsafe_allow_html=True)
+            
+            return {
+                "status": "success",
+                "query_category": query_category,
+                "original_query": user_query,
+                "response": f"{full_response}{disclaimer}",
+                "sources": sources
+            }
+            
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Error processing query: {str(e)}"
+            }
+
     def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
-      
         categories = {
             "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
             "side_effects": ["side effect", "adverse", "reaction", "problem", "issues", "symptoms"],
@@ -235,6 +238,7 @@ def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any
             if any(keyword in query_lower for keyword in keywords):
                 return category
         return "general"
+
 def set_page_style():
     """Set page style using custom CSS"""
     st.markdown("""
@@ -301,7 +305,7 @@ def main():
             layout="wide"
         )
         
-        set_page_style()  # Your existing style function remains the same
+        set_page_style()
         
         if 'pplx' not in st.secrets:
             st.error('Required PPLX API key not found. Please configure the PPLX API key in your secrets.')
@@ -357,6 +361,15 @@ def main():
             st.markdown("### Previous Questions")
             for i, chat in enumerate(reversed(st.session_state.chat_history[:-1]), 1):
                 with st.expander(f"Question {len(st.session_state.chat_history) - i}: {chat['query'][:50]}..."):
+                    formatted_sources = ""
+                    if chat['response']['sources'] and chat['response']['sources'] != "No sources provided":
+                        formatted_sources = f"""
+                        <div class="sources-section">
+                            <b>Sources:</b><br>
+                            {chat['response']['sources']}
+                        </div>
+                        """
+                    
                     st.markdown(f"""
                     <div class="chat-message user-message">
                         <b>Your Question:</b><br>{chat['query']}
@@ -364,15 +377,9 @@ def main():
                     <div class="chat-message bot-message">
                         <div class="category-tag">{chat['response']['query_category'].upper()}</div><br>
                         <b>Response:</b><br>{chat['response']['response']}
-                        <div class="sources-section">
-                            <b>Sources:</b><br>{chat['response']['sources']}
-                        </div>
+                        {formatted_sources}
                     </div>
                     """, unsafe_allow_html=True)
     
     except Exception as e:
-        st.error(f"An unexpected error occurred: {str(e)}")
-        st.error("Please refresh the page and try again.")
-
-if __name__ == "__main__":
-    main()
+        st.error(f"An unexpected error occurred: {str(
