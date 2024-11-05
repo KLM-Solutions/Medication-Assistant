@@ -145,7 +145,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "message": f"Error communicating with PPLX: {str(e)}"
             }
 
-   def categorize_query(self, query: str) -> str:
+def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
         categories = {
             "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
@@ -163,7 +163,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 return category
         return "general"
 
-    def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
+def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
         """Process user query with streaming response"""
         try:
             if not user_query.strip():
@@ -225,7 +225,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "message": f"Error processing query: {str(e)}"
             }
 
-  def set_page_style():
+def set_page_style():
     """Set page style using custom CSS"""
     st.markdown("""
     <style>
