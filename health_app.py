@@ -224,7 +224,9 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                                 """, unsafe_allow_html=True)
                                 for q in followup_questions:
                                     if st.button(q, key=f"followup_{hash(q)}"):
+                                        # Store both the question and a flag
                                         st.session_state.followup_question = q
+                                        st.session_state.process_followup = True
                                         st.experimental_rerun()
             
             return {
@@ -395,10 +397,16 @@ def main():
         if 'followup_question' not in st.session_state:
             st.session_state.followup_question = None
         
-        # Add this before the main user input handling
-        if st.session_state.followup_question:
+        # Add this near the beginning of main(), after session state initialization
+        if 'process_followup' not in st.session_state:
+            st.session_state.process_followup = False
+        
+        # Replace the existing followup processing block with:
+        if st.session_state.followup_question and st.session_state.process_followup:
             question = st.session_state.followup_question
-            st.session_state.followup_question = None  # Reset for next use
+            # Reset states
+            st.session_state.followup_question = None
+            st.session_state.process_followup = False
             
             st.markdown(f"""
             <div class="chat-message user-message">
