@@ -30,12 +30,10 @@ You are a specialized medical information assistant focused EXCLUSIVELY on GLP-1
    - Clear, validated medical information about GLP-1 medications
    - Important safety considerations or disclaimers
    - An encouraging closing that reinforces their healthcare journey
-   - Generate 3 relevant follow-up questions based on the context
-   
+
 4. Always provide source citations which is related to the generated response. Importantly only provide sources for about GLP-1 medications
 5. Provide response in a simple manner that is easy to understand at preferably a 11th grade literacy level with reduced pharmaceutical or medical jargon
 6. Always Return sources in a hyperlink format
-7. After the sources, provide a section titled "Follow-up Questions:" with 3 numbered, relevant questions that users might want to ask next
 
 Remember: You must NEVER provide information about topics outside of GLP-1 medications and their direct effects.
 Each response must include relevant medical disclaimers and encourage consultation with healthcare providers.
@@ -44,19 +42,36 @@ Review and enhance the information about GLP-1 medications only.
 Maintain a professional yet approachable tone, emphasizing both expertise and emotional support.
 """
 
+    def get_faq_questions(self) -> list:
+        """Return list of predefined FAQ questions"""
+        return [
+            "What dietary modifications are recommended while taking GLP-1 medications?",
+            "How do GLP-1 medications interact with other diabetes treatments?",
+            "What are the most common side effects patients report when starting GLP-1 therapy?"
+        ]
+
     def format_sources_as_hyperlinks(self, sources_text: str) -> str:
         """Convert source text into formatted hyperlinks"""
-        # Existing implementation remains the same
+        # Clean any existing HTML tags
         clean_text = re.sub(r'<[^>]+>', '', sources_text)
+        
+        # Common patterns for URLs in the text
         url_pattern = r'https?://[^\s<>"]+|www\.[^\s<>"]+'
+        
+        # Find all URLs in the text
         urls = re.finditer(url_pattern, clean_text)
         formatted_text = clean_text
         
+        # Replace each URL with a markdown hyperlink
         for url_match in urls:
             url = url_match.group(0)
+            # Extract title if it appears before the URL (common format: "Title: URL")
             title_match = re.search(rf'([^.!?\n]+)(?=\s*{re.escape(url)})', formatted_text)
             title = title_match.group(1).strip() if title_match else url
+            
+            # Create markdown hyperlink
             hyperlink = f'[{title}]({url})'
+            # Replace the URL and its title (if found) with the hyperlink
             if title_match:
                 formatted_text = formatted_text.replace(f'{title_match.group(0)} {url}', hyperlink)
             else:
@@ -64,24 +79,14 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
         
         return formatted_text
 
-    def extract_followup_questions(self, content: str) -> list:
-        """Extract follow-up questions from the response content"""
-        questions = []
-        if "Follow-up Questions:" in content:
-            questions_section = content.split("Follow-up Questions:")[-1]
-            # Extract numbered questions using regex
-            question_matches = re.findall(r'\d+\.\s*([^\n]+)', questions_section)
-            questions = [q.strip() for q in question_matches]
-        return questions
-
     def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
-        """Stream response from PPLX API with sources and follow-up questions"""
+        """Stream response from PPLX API with sources"""
         try:
             payload = {
                 "model": self.pplx_model,
                 "messages": [
                     {"role": "system", "content": self.pplx_system_prompt},
-                    {"role": "user", "content": f"{query}\n\nPlease include sources for the information provided, formatted as 'Title: URL' on separate lines, and suggest 3 relevant follow-up questions."}
+                    {"role": "user", "content": f"{query}\n\nPlease include sources for the information provided, formatted as 'Title: URL' on separate lines."}
                 ],
                 "temperature": 0.1,
                 "max_tokens": 1500,
@@ -115,6 +120,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                                 
                             content = chunk['choices'][0]['delta'].get('content', '')
                             if content:
+                                # Check if we've hit the sources section
                                 if "Sources:" in content:
                                     found_sources = True
                                     parts = content.split("Sources:", 1)
@@ -136,14 +142,13 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                         except json.JSONDecodeError:
                             continue
             
+            # Format sources as hyperlinks
             formatted_sources = self.format_sources_as_hyperlinks(sources_text.strip()) if sources_text.strip() else "No sources provided"
-            followup_questions = self.extract_followup_questions(accumulated_content)
             
             yield {
                 "type": "complete",
                 "content": accumulated_content.strip(),
-                "sources": formatted_sources,
-                "followup_questions": followup_questions
+                "sources": formatted_sources
             }
             
         except Exception as e:
@@ -163,7 +168,6 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             
             query_category = self.categorize_query(user_query)
             full_response = ""
-            followup_questions = []
             
             message_placeholder = placeholder.empty()
             
@@ -183,7 +187,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 
                 elif chunk["type"] == "complete":
                     full_response = chunk["content"]
-                    followup_questions = chunk["followup_questions"]
+                    sources = chunk.get("sources", "No sources provided")
                     disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
                     
                     formatted_response = f"""
@@ -191,7 +195,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                         <div class="category-tag">{query_category.upper()}</div><br>
                         <b>Response:</b><br>{full_response}{disclaimer}<br><br>
                         <div class="sources-section">
-                            <b>Sources:</b><br>{chunk["sources"]}
+                            <b>Sources:</b><br>{sources}
                         </div>
                     </div>
                     """
@@ -203,8 +207,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "query_category": query_category,
                 "original_query": user_query,
                 "response": f"{full_response}{disclaimer}",
-                "sources": chunk.get("sources", ""),
-                "followup_questions": followup_questions
+                "sources": chunk.get("sources", "No sources provided")
             }
             
         except Exception as e:
@@ -213,23 +216,111 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "message": f"Error processing query: {str(e)}"
             }
 
-    # Rest of the class implementation remains the same...
+    def categorize_query(self, query: str) -> str:
+        """Categorize the user query"""
+        categories = {
+            "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
+            "side_effects": ["side effect", "adverse", "reaction", "problem", "issues", "symptoms"],
+            "benefits": ["benefit", "advantage", "help", "work", "effect", "weight", "glucose"],
+            "storage": ["store", "storage", "keep", "refrigerate", "temperature"],
+            "lifestyle": ["diet", "exercise", "lifestyle", "food", "alcohol", "eating"],
+            "interactions": ["interaction", "drug", "medication", "combine", "mixing"],
+            "cost": ["cost", "price", "insurance", "coverage", "afford"]
+        }
+        
+        query_lower = query.lower()
+        for category, keywords in categories.items():
+            if any(keyword in query_lower for keyword in keywords):
+                return category
+        return "general"
 
 def set_page_style():
     """Set page style using custom CSS"""
     st.markdown("""
     <style>
-        /* Existing styles remain the same */
-        .followup-question {
-            background-color: #e8f5e9;
-            padding: 0.8rem;
-            border-radius: 0.5rem;
-            margin: 0.5rem 0;
-            cursor: pointer;
-            transition: background-color 0.3s;
+        .main {
+            background-color: #f5f5f5;
         }
-        .followup-question:hover {
-            background-color: #c8e6c9;
+        .stTextInput>div>div>input {
+            background-color: white;
+        }
+        .chat-message {
+            padding: 1.5rem;
+            border-radius: 0.8rem;
+            margin: 1rem 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .user-message {
+            background-color: #e3f2fd;
+            border-left: 4px solid #1976d2;
+        }
+        .bot-message {
+            background-color: #f5f5f5;
+            border-left: 4px solid #43a047;
+        }
+        .category-tag {
+            background-color: #2196f3;
+            color: white;
+            padding: 0.2rem 0.6rem;
+            border-radius: 1rem;
+            font-size: 0.8rem;
+            margin-bottom: 0.5rem;
+            display: inline-block;
+        }
+        .sources-section {
+            background-color: #fff3e0;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-top: 1rem;
+            border-left: 4px solid #ff9800;
+        }
+        .disclaimer {
+            background-color: #fff3e0;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            border-left: 4px solid #ff9800;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+        }
+        .info-box {
+            background-color: #e8f5e9;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin: 1rem 0;
+        }
+        .faq-button {
+            background-color: #f0f7ff;
+            border: 1px solid #1976d2;
+            color: #1976d2;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            margin: 0.5rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .faq-button:hover {
+            background-color: #1976d2;
+            color: white;
+        }
+        .faq-section {
+            background-color: #ffffff;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin: 1rem 0;
+            border: 1px solid #e0e0e0;
+        }
+        .stButton>button {
+            width: 100%;
+            margin: 0.25rem 0;
+            padding: 0.5rem;
+            background-color: #f0f7ff;
+            color: #1976d2;
+            border: 1px solid #1976d2;
+            border-radius: 0.5rem;
+        }
+        .stButton>button:hover {
+            background-color: #1976d2;
+            color: white;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -263,6 +354,39 @@ def main():
         
         if 'chat_history' not in st.session_state:
             st.session_state.chat_history = []
+
+        # Add FAQ section
+        st.markdown("""
+        <div class="faq-section">
+        <h3>Frequently Asked Questions</h3>
+        <p>Click on any question below to get an immediate answer:</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Create columns for FAQ buttons
+        col1, col2, col3 = st.columns(3)
+        
+        # Add FAQ buttons in columns
+        faq_questions = bot.get_faq_questions()
+        faq_clicked = False
+        selected_question = None
+
+        with col1:
+            if st.button(faq_questions[0], key="faq1", help="Click to get answer about dietary modifications"):
+                selected_question = faq_questions[0]
+                faq_clicked = True
+
+        with col2:
+            if st.button(faq_questions[1], key="faq2", help="Click to get answer about medication interactions"):
+                selected_question = faq_questions[1]
+                faq_clicked = True
+
+        with col3:
+            if st.button(faq_questions[2], key="faq3", help="Click to get answer about side effects"):
+                selected_question = faq_questions[2]
+                faq_clicked = True
+
+        st.markdown("---")
         
         with st.container():
             user_input = st.text_input(
@@ -275,33 +399,27 @@ def main():
             with col1:
                 submit_button = st.button("Get Answer", key="submit")
             
-            if submit_button and user_input:
+            # Handle both FAQ clicks and regular input
+            if (submit_button and user_input) or faq_clicked:
+                question = selected_question if faq_clicked else user_input
+                
                 st.markdown(f"""
                 <div class="chat-message user-message">
-                    <b>Your Question:</b><br>{user_input}
+                    <b>Your Question:</b><br>{question}
                 </div>
                 """, unsafe_allow_html=True)
                 
+                # Create a placeholder for the streaming response
                 response_placeholder = st.empty()
-                response = bot.process_streaming_query(user_input, response_placeholder)
+                
+                # Process the query with streaming
+                response = bot.process_streaming_query(question, response_placeholder)
                 
                 if response["status"] == "success":
                     st.session_state.chat_history.append({
-                        "query": user_input,
+                        "query": question,
                         "response": response
                     })
-                    
-                    # Display follow-up questions if available
-                    if response.get("followup_questions"):
-                        st.markdown("### Follow-up Questions")
-                        for question in response["followup_questions"]:
-                            if st.button(question, key=f"followup_{hash(question)}"):
-                                followup_response = bot.process_streaming_query(question, st.empty())
-                                if followup_response["status"] == "success":
-                                    st.session_state.chat_history.append({
-                                        "query": question,
-                                        "response": followup_response
-                                    })
         
         if st.session_state.chat_history:
             st.markdown("---")
@@ -315,9 +433,11 @@ def main():
                     <div class="chat-message bot-message">
                         <div class="category-tag">{chat['response']['query_category'].upper()}</div><br>
                         <b>Response:</b><br>{chat['response']['response']}
+                        <div class="sources-section">
+                            <b>Sources:</b><br>{chat['response'].get('sources', 'No sources provided')}
+                        </div>
                     </div>
                     """, unsafe_allow_html=True)
-    
     except Exception as e:
         st.error(f"An unexpected error occurred: {str(e)}")
         st.error("Please refresh the page and try again.")
