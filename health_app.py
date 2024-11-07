@@ -42,7 +42,7 @@ Review and enhance the information about GLP-1 medications only.
 Maintain a professional yet approachable tone, emphasizing both expertise and emotional support.
 """
 
-    def format_sources_as_hyperlinks(self, sources_text: str) -> str:
+def format_sources_as_hyperlinks(self, sources_text: str) -> str:
         """Convert source text into formatted hyperlinks"""
         clean_text = re.sub(r'<[^>]+>', '', sources_text)
         url_pattern = r'https?://[^\s<>"]+|www\.[^\s<>"]+'
@@ -62,7 +62,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
         
         return formatted_text
 
-    def get_related_questions(self, query: str, response_content: str) -> List[str]:
+def get_related_questions(self, query: str, response_content: str) -> List[str]:
         """Generate follow-up questions based on the current query and response"""
         try:
             payload = {
@@ -89,7 +89,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             st.error(f"Error generating follow-up questions: {str(e)}")
             return []
 
-    def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
+def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
         """Stream response from PPLX API with sources"""
         try:
             payload = {
