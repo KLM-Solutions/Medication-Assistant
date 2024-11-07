@@ -224,13 +224,8 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                                 """, unsafe_allow_html=True)
                                 for q in followup_questions:
                                     if st.button(q, key=f"followup_{hash(q)}"):
-                                        # Process the follow-up question immediately
-                                        st.markdown(f"""
-                                        <div class="chat-message user-message">
-                                            <b>Your Follow-up Question:</b><br>{q}
-                                        </div>
-                                        """, unsafe_allow_html=True)
-                                        new_placeholder = st.empty()
+                                        st.session_state.followup_question = q
+                                        st.experimental_rerun()
             
             return {
                 "status": "success",
