@@ -231,7 +231,6 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                                         </div>
                                         """, unsafe_allow_html=True)
                                         new_placeholder = st.empty()
-                                        self.process_streaming_query(q, new_placeholder, is_related_question=True)
             
             return {
                 "status": "success",
@@ -397,6 +396,29 @@ def main():
         # Initialize user_input in session state if not present
         if 'user_input' not in st.session_state:
             st.session_state.user_input = ""
+        
+        if 'followup_question' not in st.session_state:
+            st.session_state.followup_question = None
+        
+        # Add this before the main user input handling
+        if st.session_state.followup_question:
+            question = st.session_state.followup_question
+            st.session_state.followup_question = None  # Reset for next use
+            
+            st.markdown(f"""
+            <div class="chat-message user-message">
+                <b>Your Follow-up Question:</b><br>{question}
+            </div>
+            """, unsafe_allow_html=True)
+            
+            response_placeholder = st.empty()
+            response = bot.process_streaming_query(question, response_placeholder, is_related_question=True)
+            
+            if response["status"] == "success":
+                st.session_state.chat_history.append({
+                    "query": question,
+                    "response": response
+                })
         
         with st.container():
             user_input = st.text_input(
