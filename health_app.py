@@ -42,7 +42,7 @@ Review and enhance the information about GLP-1 medications only.
 Maintain a professional yet approachable tone, emphasizing both expertise and emotional support.
 """
 
-def format_sources_as_hyperlinks(self, sources_text: str) -> str:
+    def format_sources_as_hyperlinks(self, sources_text: str) -> str:
         """Convert source text into formatted hyperlinks"""
         clean_text = re.sub(r'<[^>]+>', '', sources_text)
         url_pattern = r'https?://[^\s<>"]+|www\.[^\s<>"]+'
@@ -62,7 +62,7 @@ def format_sources_as_hyperlinks(self, sources_text: str) -> str:
         
         return formatted_text
 
-def get_related_questions(self, query: str, response_content: str) -> List[str]:
+    def get_related_questions(self, query: str, response_content: str) -> List[str]:
         """Generate follow-up questions based on the current query and response"""
         try:
             payload = {
@@ -89,7 +89,7 @@ def get_related_questions(self, query: str, response_content: str) -> List[str]:
             st.error(f"Error generating follow-up questions: {str(e)}")
             return []
 
-def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
+    def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
         """Stream response from PPLX API with sources"""
         try:
             payload = {
@@ -164,11 +164,12 @@ def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, No
                 "type": "error",
                 "message": f"Error communicating with PPLX: {str(e)}"
             }
-def handle_followup_click(self, question: str):
+    def handle_followup_click(self, question: str):
         """Handle follow-up question click by setting it as the user input"""
         st.session_state.user_input = question
         st.experimental_rerun()
-def process_streaming_query(self, user_query: str, placeholder, is_related_question: bool = False) -> Dict[str, Any]:
+
+    def process_streaming_query(self, user_query: str, placeholder, is_related_question: bool = False) -> Dict[str, Any]:
         """Process user query with streaming response"""
         try:
             if not user_query.strip():
@@ -222,14 +223,9 @@ def process_streaming_query(self, user_query: str, placeholder, is_related_quest
                                 </div>
                                 """, unsafe_allow_html=True)
                                 for q in followup_questions:
-                                    # Create a form for each follow-up question
-                                    with st.form(key=f"followup_form_{hash(q)}"):
-                                        st.form_submit_button(
-                                            q, 
-                                            on_click=self.handle_followup_click,
-                                            args=(q,),
-                                            use_container_width=True
-                                        )
+                                    if st.button(q, key=f"followup_{hash(q)}"):
+                                        st.session_state.user_input = q
+                                        st.experimental_rerun()
             
             return {
                 "status": "success",
@@ -245,7 +241,7 @@ def process_streaming_query(self, user_query: str, placeholder, is_related_quest
                 "message": f"Error processing query: {str(e)}"
             }
 
-def categorize_query(self, query: str) -> str:
+    def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
         categories = {
             "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
