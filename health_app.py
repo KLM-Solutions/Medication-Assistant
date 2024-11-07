@@ -54,8 +54,7 @@ You are a medical assistant specialized in GLP-1 medications. Your task is to ge
 Format your response as a JSON array of strings, each string being a follow-up question.
 Example format: ["Question 1?", "Question 2?", "Question 3?"]
 """
-
-    def format_sources_as_hyperlinks(self, sources_text: str) -> str:
+ def format_sources_as_hyperlinks(self, sources_text: str) -> str:
         """Convert source text into formatted hyperlinks"""
         # Clean any existing HTML tags
         clean_text = re.sub(r'<[^>]+>', '', sources_text)
@@ -84,7 +83,7 @@ Example format: ["Question 1?", "Question 2?", "Question 3?"]
         
         return formatted_text
 
-   def generate_followup_questions(self, initial_query: str, initial_response: str) -> List[str]:
+ def generate_followup_questions(self, initial_query: str, initial_response: str) -> List[str]:
         """Generate follow-up questions based on the initial query and response"""
         try:
             # Enhanced prompt for better question generation
@@ -151,7 +150,7 @@ Format your response as a valid JSON array of strings. Example:
             st.error(f"Error generating follow-up questions: {str(e)}")
             return []
 
-    def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
+ def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
         """Stream response from PPLX API with sources"""
         try:
             payload = {
@@ -229,7 +228,7 @@ Format your response as a valid JSON array of strings. Example:
                 "message": f"Error communicating with PPLX: {str(e)}"
             }
 
-    def process_streaming_query(self, user_query: str, placeholder, is_followup: bool = False) -> Dict[str, Any]:
+ def process_streaming_query(self, user_query: str, placeholder, is_followup: bool = False) -> Dict[str, Any]:
         """Process user query with streaming response"""
         try:
             if not user_query.strip():
@@ -321,7 +320,7 @@ Format your response as a valid JSON array of strings. Example:
                 "status": "error",
                 "message": f"Error processing query: {str(e)}"
             }
-    def categorize_query(self, query: str) -> str:
+ def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
         categories = {
             "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
