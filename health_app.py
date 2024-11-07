@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import json
 import re 
-from typing import Dict, Any, Optional, Generator, List
+from typing import Dict, Any, Optional, Generator
 
 class GLP1Bot:
     def __init__(self):
@@ -44,50 +44,32 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
 
     def format_sources_as_hyperlinks(self, sources_text: str) -> str:
         """Convert source text into formatted hyperlinks"""
+        # Clean any existing HTML tags
         clean_text = re.sub(r'<[^>]+>', '', sources_text)
+        
+        # Common patterns for URLs in the text
         url_pattern = r'https?://[^\s<>"]+|www\.[^\s<>"]+'
+        
+        # Find all URLs in the text
         urls = re.finditer(url_pattern, clean_text)
         formatted_text = clean_text
         
+        # Replace each URL with a markdown hyperlink
         for url_match in urls:
             url = url_match.group(0)
+            # Extract title if it appears before the URL (common format: "Title: URL")
             title_match = re.search(rf'([^.!?\n]+)(?=\s*{re.escape(url)})', formatted_text)
             title = title_match.group(1).strip() if title_match else url
-            hyperlink = f'[{title}]({url})'
             
+            # Create markdown hyperlink
+            hyperlink = f'[{title}]({url})'
+            # Replace the URL and its title (if found) with the hyperlink
             if title_match:
                 formatted_text = formatted_text.replace(f'{title_match.group(0)} {url}', hyperlink)
             else:
                 formatted_text = formatted_text.replace(url, hyperlink)
         
         return formatted_text
-
-    def get_related_questions(self, query: str, response_content: str) -> List[str]:
-        """Generate follow-up questions based on the current query and response"""
-        try:
-            payload = {
-                "model": self.pplx_model,
-                "messages": [
-                    {"role": "system", "content": "You are a medical assistant. Based on the given query and response about GLP-1 medications, generate exactly 3 relevant follow-up questions. Return only the questions, one per line."},
-                    {"role": "user", "content": f"Original query: {query}\n\nResponse content: {response_content}\n\nGenerate 3 relevant follow-up questions:"}
-                ],
-                "temperature": 0.7,
-                "max_tokens": 200
-            }
-            
-            response = requests.post(
-                "https://api.perplexity.ai/chat/completions",
-                headers=self.pplx_headers,
-                json=payload
-            )
-            
-            response.raise_for_status()
-            questions = response.json()['choices'][0]['message']['content'].strip().split('\n')
-            return [q.strip() for q in questions if q.strip()][:3]
-            
-        except Exception as e:
-            st.error(f"Error generating follow-up questions: {str(e)}")
-            return []
 
     def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
         """Stream response from PPLX API with sources"""
@@ -130,6 +112,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                                 
                             content = chunk['choices'][0]['delta'].get('content', '')
                             if content:
+                                # Check if we've hit the sources section
                                 if "Sources:" in content:
                                     found_sources = True
                                     parts = content.split("Sources:", 1)
@@ -151,6 +134,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                         except json.JSONDecodeError:
                             continue
             
+            # Format sources as hyperlinks
             formatted_sources = self.format_sources_as_hyperlinks(sources_text.strip()) if sources_text.strip() else "No sources provided"
             
             yield {
@@ -164,12 +148,8 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "type": "error",
                 "message": f"Error communicating with PPLX: {str(e)}"
             }
-    def handle_followup_click(self, question: str):
-        """Handle follow-up question click by setting it as the user input"""
-        st.session_state.user_input = question
-        st.experimental_rerun()
 
-    def process_streaming_query(self, user_query: str, placeholder, is_related_question: bool = False) -> Dict[str, Any]:
+    def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
         """Process user query with streaming response"""
         try:
             if not user_query.strip():
@@ -180,7 +160,6 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             
             query_category = self.categorize_query(user_query)
             full_response = ""
-            followup_questions = []
             
             message_placeholder = placeholder.empty()
             
@@ -210,29 +189,12 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                     """
                     
                     message_placeholder.markdown(formatted_response, unsafe_allow_html=True)
-                    
-                    # Generate follow-up questions in a separate container
-                    if not is_related_question:
-                        followup_questions = self.get_related_questions(user_query, full_response)
-                        if followup_questions:  # Only show container if there are questions
-                            followup_container = st.container()
-                            with followup_container:
-                                st.markdown("""
-                                <div class="followup-container">
-                                    <h3>Follow-up Questions</h3>
-                                </div>
-                                """, unsafe_allow_html=True)
-                                for q in followup_questions:
-                                    if st.button(q, key=f"followup_{hash(q)}"):
-                                        st.session_state.user_input = q
-                                        st.experimental_rerun()
             
             return {
                 "status": "success",
                 "query_category": query_category,
                 "original_query": user_query,
-                "response": f"{full_response}{disclaimer}",
-                "followup_questions": followup_questions
+                "response": f"{full_response}{disclaimer}"
             }
             
         except Exception as e:
@@ -313,48 +275,6 @@ def set_page_style():
             border-radius: 0.5rem;
             margin: 1rem 0;
         }
-        .followup-container {
-            background-color: #f8f9fa;
-            padding: 1.5rem;
-            border-radius: 0.8rem;
-            margin: 1.5rem 0;
-            border-left: 4px solid #9c27b0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .followup-container h3 {
-            color: #9c27b0;
-            margin-bottom: 1rem;
-            font-size: 1.2rem;
-        }
-        .stButton button {
-            width: 100%;
-            text-align: left;
-            background-color: #fff;
-            border: 1px solid #e0e0e0;
-            margin: 8px 0;
-            padding: 12px 16px;
-            border-radius: 6px;
-            transition: all 0.3s ease;
-            color: #424242;
-            font-size: 0.95rem;
-            line-height: 1.4;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        }
-        .stButton button:hover {
-            background-color: #f3e5f5;
-            border-color: #9c27b0;
-            transform: translateX(5px);
-            color: #9c27b0;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        .stButton button:active {
-            transform: translateX(5px) scale(0.98);
-        }
-        .chat-history-container {
-            margin-top: 2rem;
-            padding-top: 1rem;
-            border-top: 2px solid #e0e0e0;
-        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -387,10 +307,6 @@ def main():
         
         if 'chat_history' not in st.session_state:
             st.session_state.chat_history = []
-            
-        # Initialize user_input in session state if not present
-        if 'user_input' not in st.session_state:
-            st.session_state.user_input = ""
         
         with st.container():
             user_input = st.text_input(
@@ -403,14 +319,17 @@ def main():
             with col1:
                 submit_button = st.button("Get Answer", key="submit")
             
-            if (submit_button and user_input) or (user_input and user_input != st.session_state.get('previous_input', '')):
+            if submit_button and user_input:
                 st.markdown(f"""
                 <div class="chat-message user-message">
                     <b>Your Question:</b><br>{user_input}
                 </div>
                 """, unsafe_allow_html=True)
                 
+                # Create a placeholder for the streaming response
                 response_placeholder = st.empty()
+                
+                # Process the query with streaming
                 response = bot.process_streaming_query(user_input, response_placeholder)
                 
                 if response["status"] == "success":
@@ -418,19 +337,12 @@ def main():
                         "query": user_input,
                         "response": response
                     })
-                    
-                # Store the current input as previous input
-                st.session_state.previous_input = user_input
         
         if st.session_state.chat_history:
-            st.markdown("""
-            <div class="chat-history-container">
-                <h3>Previous Questions</h3>
-            </div>
-            """, unsafe_allow_html=True)
-            
+            st.markdown("---")
+            st.markdown("### Previous Questions")
             for i, chat in enumerate(reversed(st.session_state.chat_history[:-1]), 1):
-                with st.expander(f"Question {len(st.session_state.chat_history) - i}: {chat['query'][:50]}...", expanded=False):
+                with st.expander(f"Question {len(st.session_state.chat_history) - i}: {chat['query'][:50]}..."):
                     st.markdown(f"""
                     <div class="chat-message user-message">
                         <b>Your Question:</b><br>{chat['query']}
@@ -440,7 +352,6 @@ def main():
                         <b>Response:</b><br>{chat['response']['response']}
                     </div>
                     """, unsafe_allow_html=True)
-                    
     except Exception as e:
         st.error(f"An unexpected error occurred: {str(e)}")
         st.error("Please refresh the page and try again.")
