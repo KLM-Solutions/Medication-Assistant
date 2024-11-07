@@ -30,12 +30,10 @@ You are a specialized medical information assistant focused EXCLUSIVELY on GLP-1
    - Clear, validated medical information about GLP-1 medications
    - Important safety considerations or disclaimers
    - An encouraging closing that reinforces their healthcare journey
-   - Three related follow-up questions that users might want to ask next
 
 4. Always provide source citations which is related to the generated response. Importantly only provide sources for about GLP-1 medications
 5. Provide response in a simple manner that is easy to understand at preferably a 11th grade literacy level with reduced pharmaceutical or medical jargon
 6. Always Return sources in a hyperlink format
-7. End your response with exactly three related questions under the heading "Related Questions:" that users might want to ask next, based on their current query
 
 Remember: You must NEVER provide information about topics outside of GLP-1 medications and their direct effects.
 Each response must include relevant medical disclaimers and encourage consultation with healthcare providers.
@@ -46,26 +44,17 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
 
     def format_sources_as_hyperlinks(self, sources_text: str) -> str:
         """Convert source text into formatted hyperlinks"""
-        # Clean any existing HTML tags
         clean_text = re.sub(r'<[^>]+>', '', sources_text)
-        
-        # Common patterns for URLs in the text
         url_pattern = r'https?://[^\s<>"]+|www\.[^\s<>"]+'
-        
-        # Find all URLs in the text
         urls = re.finditer(url_pattern, clean_text)
         formatted_text = clean_text
         
-        # Replace each URL with a markdown hyperlink
         for url_match in urls:
             url = url_match.group(0)
-            # Extract title if it appears before the URL (common format: "Title: URL")
             title_match = re.search(rf'([^.!?\n]+)(?=\s*{re.escape(url)})', formatted_text)
             title = title_match.group(1).strip() if title_match else url
-            
-            # Create markdown hyperlink
             hyperlink = f'[{title}]({url})'
-            # Replace the URL and its title (if found) with the hyperlink
+            
             if title_match:
                 formatted_text = formatted_text.replace(f'{title_match.group(0)} {url}', hyperlink)
             else:
@@ -74,7 +63,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
         return formatted_text
 
     def get_related_questions(self, query: str, response_content: str) -> List[str]:
-        """Generate related questions based on the current query and response"""
+        """Generate follow-up questions based on the current query and response"""
         try:
             payload = {
                 "model": self.pplx_model,
@@ -190,6 +179,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             
             query_category = self.categorize_query(user_query)
             full_response = ""
+            followup_questions = []
             
             message_placeholder = placeholder.empty()
             
@@ -220,26 +210,32 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                     
                     message_placeholder.markdown(formatted_response, unsafe_allow_html=True)
                     
-                    # Generate related questions
+                    # Generate follow-up questions in a separate container
                     if not is_related_question:
-                        related_questions = self.get_related_questions(user_query, full_response)
-                        st.markdown("**Related Questions:**")
-                        for q in related_questions:
-                            if st.button(q, key=f"related_{hash(q)}"):
-                                st.markdown(f"""
-                                <div class="chat-message user-message">
-                                    <b>Related Question:</b><br>{q}
-                                </div>
-                                """, unsafe_allow_html=True)
-                                new_placeholder = st.empty()
-                                self.process_streaming_query(q, new_placeholder, is_related_question=True)
+                        followup_questions = self.get_related_questions(user_query, full_response)
+                        followup_container = st.container()
+                        with followup_container:
+                            st.markdown("""
+                            <div class="followup-container">
+                                <h3>Follow-up Questions</h3>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            for q in followup_questions:
+                                if st.button(q, key=f"followup_{hash(q)}"):
+                                    st.markdown(f"""
+                                    <div class="chat-message user-message">
+                                        <b>Follow-up Question:</b><br>{q}
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    new_placeholder = st.empty()
+                                    self.process_streaming_query(q, new_placeholder, is_related_question=True)
             
             return {
                 "status": "success",
                 "query_category": query_category,
                 "original_query": user_query,
                 "response": f"{full_response}{disclaimer}",
-                "related_questions": related_questions if not is_related_question else []
+                "followup_questions": followup_questions
             }
             
         except Exception as e:
@@ -266,7 +262,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 return category
         return "general"
 
-def set_page_style():
+ def set_page_style():
     """Set page style using custom CSS"""
     st.markdown("""
     <style>
@@ -320,33 +316,51 @@ def set_page_style():
             border-radius: 0.5rem;
             margin: 1rem 0;
         }
+        .followup-container {
+            background-color: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 0.8rem;
+            margin: 1.5rem 0;
+            border-left: 4px solid #9c27b0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .followup-container h3 {
+            color: #9c27b0;
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
         .stButton button {
             width: 100%;
             text-align: left;
-            background-color: #f8f9fa;
-            border: 1px solid #dee2e6;
-            margin: 5px 0;
-            padding: 10px;
-            border-radius: 5px;
+            background-color: #fff;
+            border: 1px solid #e0e0e0;
+            margin: 8px 0;
+            padding: 12px 16px;
+            border-radius: 6px;
             transition: all 0.3s ease;
+            color: #424242;
+            font-size: 0.95rem;
+            line-height: 1.4;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
         .stButton button:hover {
-            background-color: #e9ecef;
-            border-color: #adb5bd;
+            background-color: #f3e5f5;
+            border-color: #9c27b0;
             transform: translateX(5px);
+            color: #9c27b0;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
-        .related-question {
-            margin: 10px 0;
-            padding: 10px;
-            border-radius: 5px;
-            background-color: #f8f9fa;
-            border-left: 4px solid #2196f3;
-            cursor: pointer;
-            transition: all 0.3s ease;
+        .stButton button:active {
+            transform: translateX(5px) scale(0.98);
         }
-        .related-question:hover {
-            background-color: #e9ecef;
-            transform: translateX(5px);
+        .chat-history-container {
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 2px solid #e0e0e0;
+        }
+        .expander-header {
+            font-size: 1rem;
+            color: #616161;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -409,10 +423,14 @@ def main():
                     })
         
         if st.session_state.chat_history:
-            st.markdown("---")
-            st.markdown("### Previous Questions")
+            st.markdown("""
+            <div class="chat-history-container">
+                <h3>Previous Questions</h3>
+            </div>
+            """, unsafe_allow_html=True)
+            
             for i, chat in enumerate(reversed(st.session_state.chat_history[:-1]), 1):
-                with st.expander(f"Question {len(st.session_state.chat_history) - i}: {chat['query'][:50]}..."):
+                with st.expander(f"Question {len(st.session_state.chat_history) - i}: {chat['query'][:50]}...", expanded=False):
                     st.markdown(f"""
                     <div class="chat-message user-message">
                         <b>Your Question:</b><br>{chat['query']}
@@ -423,18 +441,24 @@ def main():
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # Add clickable related questions in the history
-                    if chat['response'].get('related_questions'):
-                        st.markdown("**Related Questions:**")
-                        for q in chat['response']['related_questions']:
-                            if st.button(q, key=f"history_related_{hash(q)}_{i}"):
-                                st.markdown(f"""
-                                <div class="chat-message user-message">
-                                    <b>Related Question:</b><br>{q}
-                                </div>
-                                """, unsafe_allow_html=True)
-                                new_placeholder = st.empty()
-                                bot.process_streaming_query(q, new_placeholder, is_related_question=True)
+                    # Add follow-up questions in the history
+                    if chat['response'].get('followup_questions'):
+                        followup_container = st.container()
+                        with followup_container:
+                            st.markdown("""
+                            <div class="followup-container">
+                                <h3>Follow-up Questions</h3>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            for q in chat['response']['followup_questions']:
+                                if st.button(q, key=f"history_followup_{hash(q)}_{i}"):
+                                    st.markdown(f"""
+                                    <div class="chat-message user-message">
+                                        <b>Follow-up Question:</b><br>{q}
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    new_placeholder = st.empty()
+                                    bot.process_streaming_query(q, new_placeholder, is_related_question=True)
                     
     except Exception as e:
         st.error(f"An unexpected error occurred: {str(e)}")
