@@ -218,14 +218,16 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                                 </div>
                                 """, unsafe_allow_html=True)
                                 for q in followup_questions:
-                                    if st.button(q, key=f"followup_{hash(q)}"):
-                                        st.markdown(f"""
-                                        <div class="chat-message user-message">
-                                            <b>Follow-up Question:</b><br>{q}
-                                        </div>
-                                        """, unsafe_allow_html=True)
-                                        new_placeholder = st.empty()
-                                        self.process_streaming_query(q, new_placeholder, is_related_question=True)
+                                    question_container = st.container()
+                                    with question_container:
+                                        if st.button(q, key=f"followup_{hash(q)}"):
+                                            st.markdown(f"""
+                                            <div class="chat-message user-message">
+                                                <b>Follow-up Question:</b><br>{q}
+                                            </div>
+                                            """, unsafe_allow_html=True)
+                                            followup_placeholder = st.empty()
+                                            self.process_streaming_query(q, followup_placeholder, is_related_question=True)
             
             return {
                 "status": "success",
@@ -240,7 +242,6 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "status": "error",
                 "message": f"Error processing query: {str(e)}"
             }
-
     def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
         categories = {
