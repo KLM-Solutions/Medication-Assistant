@@ -164,7 +164,12 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "type": "error",
                 "message": f"Error communicating with PPLX: {str(e)}"
             }
-def process_streaming_query(self, user_query: str, placeholder, is_related_question: bool = False) -> Dict[str, Any]:
+def handle_followup_click(self, question: str):
+        """Handle follow-up question click by setting it as the user input"""
+        st.session_state.user_input = question
+        st.experimental_rerun()
+
+    def process_streaming_query(self, user_query: str, placeholder, is_related_question: bool = False) -> Dict[str, Any]:
         """Process user query with streaming response"""
         try:
             if not user_query.strip():
@@ -241,13 +246,7 @@ def process_streaming_query(self, user_query: str, placeholder, is_related_quest
                 "message": f"Error processing query: {str(e)}"
             }
 
-def handle_followup_click(self, question: str):
-        """Handle follow-up question click by setting it as the user input"""
-        # Set the question in session state
-        st.session_state.user_input = question
-        # Force a rerun to process the new question
-        st.experimental_rerun()
-def categorize_query(self, query: str) -> str:
+    def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
         categories = {
             "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
@@ -363,6 +362,7 @@ def set_page_style():
         }
     </style>
     """, unsafe_allow_html=True)
+
 def main():
     """Main application function"""
     try:
