@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import json
 import re 
-from typing import Dict, Any, Optional, Generator
+from typing import Dict, Any, Optional, Generator, List
 
 class GLP1Bot:
     def __init__(self):
@@ -30,10 +30,12 @@ You are a specialized medical information assistant focused EXCLUSIVELY on GLP-1
    - Clear, validated medical information about GLP-1 medications
    - Important safety considerations or disclaimers
    - An encouraging closing that reinforces their healthcare journey
+   - Three related follow-up questions that users might want to ask next
 
 4. Always provide source citations which is related to the generated response. Importantly only provide sources for about GLP-1 medications
 5. Provide response in a simple manner that is easy to understand at preferably a 11th grade literacy level with reduced pharmaceutical or medical jargon
 6. Always Return sources in a hyperlink format
+7. End your response with exactly three related questions under the heading "Related Questions:" that users might want to ask next, based on their current query
 
 Remember: You must NEVER provide information about topics outside of GLP-1 medications and their direct effects.
 Each response must include relevant medical disclaimers and encourage consultation with healthcare providers.
@@ -70,6 +72,36 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 formatted_text = formatted_text.replace(url, hyperlink)
         
         return formatted_text
+
+    def get_related_questions(self, query: str, response_content: str) -> List[str]:
+        """Generate related questions based on the current query and response"""
+        try:
+            payload = {
+                "model": self.pplx_model,
+                "messages": [
+                    {"role": "system", "content": "You are a medical assistant. Based on the given query and response about GLP-1 medications, generate exactly 3 relevant follow-up questions. Return only the questions, one per line."},
+                    {"role": "user", "content": f"Original query: {query}\n\nResponse content: {response_content}\n\nGenerate 3 relevant follow-up questions:"}
+                ],
+                "temperature": 0.7,
+                "max_tokens": 200
+            }
+            
+            response = requests.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers=self.pplx_headers,
+                json=payload
+            )
+            
+            response.raise_for_status()
+            questions = response.json()['choices'][0]['message']['content'].strip().split('\n')
+            return [q.strip() for q in questions if q.strip()][:3]
+            
+        except Exception as e:
+            return [
+                "What are the common side effects of GLP-1 medications?",
+                "How should I store my GLP-1 medication?",
+                "What should I do if I miss a dose?"
+            ]
 
     def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
         """Stream response from PPLX API with sources"""
@@ -112,7 +144,6 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                                 
                             content = chunk['choices'][0]['delta'].get('content', '')
                             if content:
-                                # Check if we've hit the sources section
                                 if "Sources:" in content:
                                     found_sources = True
                                     parts = content.split("Sources:", 1)
@@ -134,7 +165,6 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                         except json.JSONDecodeError:
                             continue
             
-            # Format sources as hyperlinks
             formatted_sources = self.format_sources_as_hyperlinks(sources_text.strip()) if sources_text.strip() else "No sources provided"
             
             yield {
@@ -149,7 +179,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "message": f"Error communicating with PPLX: {str(e)}"
             }
 
-    def process_streaming_query(self, user_query: str, placeholder) -> Dict[str, Any]:
+    def process_streaming_query(self, user_query: str, placeholder, is_related_question: bool = False) -> Dict[str, Any]:
         """Process user query with streaming response"""
         try:
             if not user_query.strip():
@@ -189,12 +219,27 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                     """
                     
                     message_placeholder.markdown(formatted_response, unsafe_allow_html=True)
+                    
+                    # Generate related questions
+                    if not is_related_question:
+                        related_questions = self.get_related_questions(user_query, full_response)
+                        st.markdown("**Related Questions:**")
+                        for q in related_questions:
+                            if st.button(q, key=f"related_{hash(q)}"):
+                                st.markdown(f"""
+                                <div class="chat-message user-message">
+                                    <b>Related Question:</b><br>{q}
+                                </div>
+                                """, unsafe_allow_html=True)
+                                new_placeholder = st.empty()
+                                self.process_streaming_query(q, new_placeholder, is_related_question=True)
             
             return {
                 "status": "success",
                 "query_category": query_category,
                 "original_query": user_query,
-                "response": f"{full_response}{disclaimer}"
+                "response": f"{full_response}{disclaimer}",
+                "related_questions": related_questions if not is_related_question else []
             }
             
         except Exception as e:
@@ -275,6 +320,34 @@ def set_page_style():
             border-radius: 0.5rem;
             margin: 1rem 0;
         }
+        .stButton button {
+            width: 100%;
+            text-align: left;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            margin: 5px 0;
+            padding: 10px;
+            border-radius: 5px;
+            transition: all 0.3s ease;
+        }
+        .stButton button:hover {
+            background-color: #e9ecef;
+            border-color: #adb5bd;
+            transform: translateX(5px);
+        }
+        .related-question {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #f8f9fa;
+            border-left: 4px solid #2196f3;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .related-question:hover {
+            background-color: #e9ecef;
+            transform: translateX(5px);
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -326,10 +399,7 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Create a placeholder for the streaming response
                 response_placeholder = st.empty()
-                
-                # Process the query with streaming
                 response = bot.process_streaming_query(user_input, response_placeholder)
                 
                 if response["status"] == "success":
@@ -352,6 +422,20 @@ def main():
                         <b>Response:</b><br>{chat['response']['response']}
                     </div>
                     """, unsafe_allow_html=True)
+                    
+                    # Add clickable related questions in the history
+                    if chat['response'].get('related_questions'):
+                        st.markdown("**Related Questions:**")
+                        for q in chat['response']['related_questions']:
+                            if st.button(q, key=f"history_related_{hash(q)}_{i}"):
+                                st.markdown(f"""
+                                <div class="chat-message user-message">
+                                    <b>Related Question:</b><br>{q}
+                                </div>
+                                """, unsafe_allow_html=True)
+                                new_placeholder = st.empty()
+                                bot.process_streaming_query(q, new_placeholder, is_related_question=True)
+                    
     except Exception as e:
         st.error(f"An unexpected error occurred: {str(e)}")
         st.error("Please refresh the page and try again.")
