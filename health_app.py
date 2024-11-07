@@ -164,43 +164,10 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "type": "error",
                 "message": f"Error communicating with PPLX: {str(e)}"
             }
-
-    def handle_followup_click(self, question: str, response_container):
-        """Handle follow-up question click without page refresh"""
-        with response_container:
-            st.markdown(f"""
-            <div class="chat-message user-message">
-                <b>Your Follow-up Question:</b><br>{question}
-            </div>
-            """, unsafe_allow_html=True)
-            
-            response = self.process_streaming_query(question, response_container, is_related_question=True)
-            
-            if response["status"] == "success":
-                if 'chat_history' not in st.session_state:
-                    st.session_state.chat_history = []
-                st.session_state.chat_history.append({
-                    "query": question,
-                    "response": response
-                })
-
-    def categorize_query(self, query: str) -> str:
-        """Categorize the user query"""
-        categories = {
-            "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
-            "side_effects": ["side effect", "adverse", "reaction", "problem", "issues", "symptoms"],
-            "benefits": ["benefit", "advantage", "help", "work", "effect", "weight", "glucose"],
-            "storage": ["store", "storage", "keep", "refrigerate", "temperature"],
-            "lifestyle": ["diet", "exercise", "lifestyle", "food", "alcohol", "eating"],
-            "interactions": ["interaction", "drug", "medication", "combine", "mixing"],
-            "cost": ["cost", "price", "insurance", "coverage", "afford"]
-        }
-        
-        query_lower = query.lower()
-        for category, keywords in categories.items():
-            if any(keyword in query_lower for keyword in keywords):
-                return category
-        return "general"
+    def handle_followup_click(self, question: str):
+        """Handle follow-up question click by setting it as the user input"""
+        st.session_state.user_input = question
+        st.experimental_rerun()
 
     def process_streaming_query(self, user_query: str, placeholder, is_related_question: bool = False) -> Dict[str, Any]:
         """Process user query with streaming response"""
@@ -213,6 +180,8 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             
             query_category = self.categorize_query(user_query)
             full_response = ""
+            followup_questions = []
+            
             message_placeholder = placeholder.empty()
             
             for chunk in self.stream_pplx_response(user_query):
@@ -232,39 +201,38 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 elif chunk["type"] == "complete":
                     full_response = chunk["content"]
                     disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
-                    sources_section = f"\n\nSources:\n{chunk['sources']}" if chunk.get('sources') else ""
                     
                     formatted_response = f"""
                     <div class="chat-message bot-message">
                         <div class="category-tag">{query_category.upper()}</div><br>
                         <b>Response:</b><br>{full_response}{disclaimer}
-                        <div class="sources-section">{sources_section}</div>
                     </div>
                     """
                     
                     message_placeholder.markdown(formatted_response, unsafe_allow_html=True)
                     
+                    # Generate follow-up questions in a separate container
                     if not is_related_question:
                         followup_questions = self.get_related_questions(user_query, full_response)
-                        if followup_questions:
-                            st.markdown("""
-                            <div class="followup-container">
-                                <h3>Follow-up Questions</h3>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            
-                            cols = st.columns(len(followup_questions))
-                            for idx, (question, col) in enumerate(zip(followup_questions, cols)):
-                                with col:
-                                    if st.button(question, key=f"followup_{idx}"):
-                                        self.handle_followup_click(question, placeholder)
+                        if followup_questions:  # Only show container if there are questions
+                            followup_container = st.container()
+                            with followup_container:
+                                st.markdown("""
+                                <div class="followup-container">
+                                    <h3>Follow-up Questions</h3>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                for q in followup_questions:
+                                    if st.button(q, key=f"followup_{hash(q)}"):
+                                        st.session_state.user_input = q
+                                        st.experimental_rerun()
             
             return {
                 "status": "success",
                 "query_category": query_category,
                 "original_query": user_query,
                 "response": f"{full_response}{disclaimer}",
-                "sources": chunk.get('sources', '')
+                "followup_questions": followup_questions
             }
             
         except Exception as e:
@@ -272,6 +240,24 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "status": "error",
                 "message": f"Error processing query: {str(e)}"
             }
+
+    def categorize_query(self, query: str) -> str:
+        """Categorize the user query"""
+        categories = {
+            "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
+            "side_effects": ["side effect", "adverse", "reaction", "problem", "issues", "symptoms"],
+            "benefits": ["benefit", "advantage", "help", "work", "effect", "weight", "glucose"],
+            "storage": ["store", "storage", "keep", "refrigerate", "temperature"],
+            "lifestyle": ["diet", "exercise", "lifestyle", "food", "alcohol", "eating"],
+            "interactions": ["interaction", "drug", "medication", "combine", "mixing"],
+            "cost": ["cost", "price", "insurance", "coverage", "afford"]
+        }
+        
+        query_lower = query.lower()
+        for category, keywords in categories.items():
+            if any(keyword in query_lower for keyword in keywords):
+                return category
+        return "general"
 
 def set_page_style():
     """Set page style using custom CSS"""
@@ -399,16 +385,14 @@ def main():
         
         bot = GLP1Bot()
         
-        # Create containers for different sections
-        input_container = st.container()
-        response_container = st.container()
-        history_container = st.container()
-        
-        # Initialize session state
         if 'chat_history' not in st.session_state:
             st.session_state.chat_history = []
+            
+        # Initialize user_input in session state if not present
+        if 'user_input' not in st.session_state:
+            st.session_state.user_input = ""
         
-        with input_container:
+        with st.container():
             user_input = st.text_input(
                 "Ask your question about GLP-1 medications:",
                 key="user_input",
@@ -418,44 +402,44 @@ def main():
             col1, col2 = st.columns([1, 5])
             with col1:
                 submit_button = st.button("Get Answer", key="submit")
-        
-        if submit_button and user_input:
-            with response_container:
+            
+            if (submit_button and user_input) or (user_input and user_input != st.session_state.get('previous_input', '')):
                 st.markdown(f"""
                 <div class="chat-message user-message">
                     <b>Your Question:</b><br>{user_input}
                 </div>
                 """, unsafe_allow_html=True)
                 
-                response = bot.process_streaming_query(user_input, response_container)
+                response_placeholder = st.empty()
+                response = bot.process_streaming_query(user_input, response_placeholder)
                 
                 if response["status"] == "success":
                     st.session_state.chat_history.append({
                         "query": user_input,
                         "response": response
                     })
+                    
+                # Store the current input as previous input
+                st.session_state.previous_input = user_input
         
-        # Display chat history
-        with history_container:
-            if st.session_state.chat_history:
-                st.markdown("""
-                <div class="chat-history-container">
-                    <h3>Previous Questions</h3>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                for i, chat in enumerate(reversed(st.session_state.chat_history[:-1]), 1):
-                    with st.expander(f"Question {len(st.session_state.chat_history) - i}: {chat['query'][:50]}...", expanded=False):
-                        st.markdown(f"""
-                        <div class="chat-message user-message">
-                            <b>Your Question:</b><br>{chat['query']}
-                        </div>
-                        <div class="chat-message bot-message">
-                            <div class="category-tag">{chat['response']['query_category'].upper()}</div><br>
-                            <b>Response:</b><br>{chat['response']['response']}
-                            <div class="sources-section">{chat['response'].get('sources', '')}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
+        if st.session_state.chat_history:
+            st.markdown("""
+            <div class="chat-history-container">
+                <h3>Previous Questions</h3>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            for i, chat in enumerate(reversed(st.session_state.chat_history[:-1]), 1):
+                with st.expander(f"Question {len(st.session_state.chat_history) - i}: {chat['query'][:50]}...", expanded=False):
+                    st.markdown(f"""
+                    <div class="chat-message user-message">
+                        <b>Your Question:</b><br>{chat['query']}
+                    </div>
+                    <div class="chat-message bot-message">
+                        <div class="category-tag">{chat['response']['query_category'].upper()}</div><br>
+                        <b>Response:</b><br>{chat['response']['response']}
+                    </div>
+                    """, unsafe_allow_html=True)
                     
     except Exception as e:
         st.error(f"An unexpected error occurred: {str(e)}")
