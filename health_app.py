@@ -168,8 +168,7 @@ def handle_followup_click(self, question: str):
         """Handle follow-up question click by setting it as the user input"""
         st.session_state.user_input = question
         st.experimental_rerun()
-
-    def process_streaming_query(self, user_query: str, placeholder, is_related_question: bool = False) -> Dict[str, Any]:
+def process_streaming_query(self, user_query: str, placeholder, is_related_question: bool = False) -> Dict[str, Any]:
         """Process user query with streaming response"""
         try:
             if not user_query.strip():
@@ -246,7 +245,7 @@ def handle_followup_click(self, question: str):
                 "message": f"Error processing query: {str(e)}"
             }
 
-    def categorize_query(self, query: str) -> str:
+def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
         categories = {
             "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
