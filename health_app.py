@@ -149,7 +149,7 @@ Format your response as a valid JSON array of strings. Example:
             st.error(f"Error generating follow-up questions: {str(e)}")
             return []
 
- def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
+def stream_pplx_response(self, query: str) -> Generator[Dict[str, Any], None, None]:
         """Stream response from PPLX API with sources"""
         try:
             payload = {
@@ -227,7 +227,7 @@ Format your response as a valid JSON array of strings. Example:
                 "message": f"Error communicating with PPLX: {str(e)}"
             }
 
- def process_streaming_query(self, user_query: str, placeholder, is_followup: bool = False) -> Dict[str, Any]:
+def process_streaming_query(self, user_query: str, placeholder, is_followup: bool = False) -> Dict[str, Any]:
         """Process user query with streaming response"""
         try:
             if not user_query.strip():
@@ -319,7 +319,7 @@ Format your response as a valid JSON array of strings. Example:
                 "status": "error",
                 "message": f"Error processing query: {str(e)}"
             }
- def categorize_query(self, query: str) -> str:
+def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
         categories = {
             "dosage": ["dose", "dosage", "how to take", "when to take", "injection", "administration"],
@@ -336,7 +336,6 @@ Format your response as a valid JSON array of strings. Example:
             if any(keyword in query_lower for keyword in keywords):
                 return category
         return "general"
-
 def set_page_style():
     """Set page style using custom CSS"""
     st.markdown("""
