@@ -82,7 +82,6 @@ def format_sources_as_hyperlinks(self, sources_text: str) -> str:
                 formatted_text = formatted_text.replace(url, hyperlink)
         
         return formatted_text
-
  def generate_followup_questions(self, initial_query: str, initial_response: str) -> List[str]:
         """Generate follow-up questions based on the initial query and response"""
         try:
