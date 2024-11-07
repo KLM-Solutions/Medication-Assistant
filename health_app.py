@@ -365,7 +365,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
     </style>
     """, unsafe_allow_html=True)
 
-def main():
+  def main():
     """Main application function"""
     try:
         st.set_page_config(
