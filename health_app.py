@@ -729,7 +729,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
             if any(keyword in query_lower for keyword in keywords):
                 return category
         return "general"
-        def set_page_style():
+def set_page_style():
     """Set page style using custom CSS"""
     st.markdown("""
     <style>
