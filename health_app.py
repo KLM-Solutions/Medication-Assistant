@@ -54,7 +54,7 @@ You are a medical assistant specialized in GLP-1 medications. Your task is to ge
 Format your response as a JSON array of strings, each string being a follow-up question.
 Example format: ["Question 1?", "Question 2?", "Question 3?"]
 """
-def format_sources_as_hyperlinks(self, sources_text: str) -> str:
+    def format_sources_as_hyperlinks(self, sources_text: str) -> str:
         """Convert source text into formatted hyperlinks"""
         # Clean any existing HTML tags
         clean_text = re.sub(r'<[^>]+>', '', sources_text)
@@ -82,7 +82,7 @@ def format_sources_as_hyperlinks(self, sources_text: str) -> str:
                 formatted_text = formatted_text.replace(url, hyperlink)
         
         return formatted_text
- def generate_followup_questions(self, initial_query: str, initial_response: str) -> List[str]:
+   def generate_followup_questions(self, initial_query: str, initial_response: str) -> List[str]:
         """Generate follow-up questions based on the initial query and response"""
         try:
             # Enhanced prompt for better question generation
