@@ -164,7 +164,7 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "type": "error",
                 "message": f"Error communicating with PPLX: {str(e)}"
             }
-    def process_streaming_query(self, user_query: str, placeholder, is_related_question: bool = False) -> Dict[str, Any]:
+   def process_streaming_query(self, user_query: str, placeholder, is_related_question: bool = False) -> Dict[str, Any]:
         """Process user query with streaming response"""
         try:
             if not user_query.strip():
@@ -218,16 +218,14 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                                 </div>
                                 """, unsafe_allow_html=True)
                                 for q in followup_questions:
-                                    question_container = st.container()
-                                    with question_container:
-                                        if st.button(q, key=f"followup_{hash(q)}"):
-                                            st.markdown(f"""
-                                            <div class="chat-message user-message">
-                                                <b>Follow-up Question:</b><br>{q}
-                                            </div>
-                                            """, unsafe_allow_html=True)
-                                            followup_placeholder = st.empty()
-                                            self.process_streaming_query(q, followup_placeholder, is_related_question=True)
+                                    # Create a form for each follow-up question
+                                    with st.form(key=f"followup_form_{hash(q)}"):
+                                        st.form_submit_button(
+                                            q, 
+                                            on_click=self.handle_followup_click,
+                                            args=(q,),
+                                            use_container_width=True
+                                        )
             
             return {
                 "status": "success",
@@ -242,6 +240,13 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                 "status": "error",
                 "message": f"Error processing query: {str(e)}"
             }
+
+    def handle_followup_click(self, question: str):
+        """Handle follow-up question click by setting it as the user input"""
+        # Set the question in session state
+        st.session_state.user_input = question
+        # Force a rerun to process the new question
+        st.experimental_rerun()
     def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
         categories = {
@@ -387,6 +392,10 @@ def main():
         
         if 'chat_history' not in st.session_state:
             st.session_state.chat_history = []
+            
+        # Initialize user_input in session state if not present
+        if 'user_input' not in st.session_state:
+            st.session_state.user_input = ""
         
         with st.container():
             user_input = st.text_input(
@@ -399,7 +408,7 @@ def main():
             with col1:
                 submit_button = st.button("Get Answer", key="submit")
             
-            if submit_button and user_input:
+            if (submit_button and user_input) or (user_input and user_input != st.session_state.get('previous_input', '')):
                 st.markdown(f"""
                 <div class="chat-message user-message">
                     <b>Your Question:</b><br>{user_input}
@@ -414,6 +423,9 @@ def main():
                         "query": user_input,
                         "response": response
                     })
+                    
+                # Store the current input as previous input
+                st.session_state.previous_input = user_input
         
         if st.session_state.chat_history:
             st.markdown("""
