@@ -211,10 +211,10 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                     
                     message_placeholder.markdown(formatted_response, unsafe_allow_html=True)
                     
-                    # Generate follow-up questions in a separate container
+                    # Only generate follow-up questions if this isn't already a follow-up question
                     if not is_related_question:
                         followup_questions = self.get_related_questions(user_query, full_response)
-                        if followup_questions:  # Only show container if there are questions
+                        if followup_questions:
                             followup_container = st.container()
                             with followup_container:
                                 st.markdown("""
@@ -224,8 +224,14 @@ Maintain a professional yet approachable tone, emphasizing both expertise and em
                                 """, unsafe_allow_html=True)
                                 for q in followup_questions:
                                     if st.button(q, key=f"followup_{hash(q)}"):
-                                        st.session_state.user_input = q
-                                        st.experimental_rerun()
+                                        # Process the follow-up question immediately
+                                        st.markdown(f"""
+                                        <div class="chat-message user-message">
+                                            <b>Your Follow-up Question:</b><br>{q}
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                        new_placeholder = st.empty()
+                                        self.process_streaming_query(q, new_placeholder, is_related_question=True)
             
             return {
                 "status": "success",
