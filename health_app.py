@@ -358,7 +358,7 @@ def set_page_style():
     </style>
     """, unsafe_allow_html=True)
 
- def main():
+  def main():
     """Main application function"""
     try:
         st.set_page_config(
