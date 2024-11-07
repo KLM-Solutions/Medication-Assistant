@@ -84,14 +84,30 @@ Example format: ["Question 1?", "Question 2?", "Question 3?"]
         
         return formatted_text
 
-    def generate_followup_questions(self, initial_query: str, initial_response: str) -> List[str]:
+   def generate_followup_questions(self, initial_query: str, initial_response: str) -> List[str]:
         """Generate follow-up questions based on the initial query and response"""
         try:
+            # Enhanced prompt for better question generation
+            enhanced_prompt = f"""Based on this GLP-1 medication query and response:
+
+Query: {initial_query}
+Response: {initial_response}
+
+Generate 3-4 relevant follow-up questions that would help the user better understand GLP-1 medications. Questions should:
+1. Be directly related to GLP-1 medications
+2. Not repeat information already covered
+3. Focus on practical aspects of medication use
+4. Address potential concerns or common follow-up topics
+5. Be clear and concise
+
+Format your response as a valid JSON array of strings. Example:
+["What are the long-term effects of this medication?", "How should I store this medication?"]"""
+
             payload = {
                 "model": self.pplx_model,
                 "messages": [
                     {"role": "system", "content": self.followup_system_prompt},
-                    {"role": "user", "content": f"Initial query: {initial_query}\n\nInitial response: {initial_response}\n\nGenerate follow-up questions:"}
+                    {"role": "user", "content": enhanced_prompt}
                 ],
                 "temperature": 0.7,
                 "max_tokens": 500
@@ -106,12 +122,29 @@ Example format: ["Question 1?", "Question 2?", "Question 3?"]
             response.raise_for_status()
             response_data = response.json()
             
-            # Extract the generated questions from the response
             try:
                 questions_str = response_data['choices'][0]['message']['content']
-                questions = json.loads(questions_str)
-                return questions if isinstance(questions, list) else []
-            except (json.JSONDecodeError, KeyError):
+                # Handle both JSON array and plain text formats
+                try:
+                    questions = json.loads(questions_str)
+                except json.JSONDecodeError:
+                    # If JSON parsing fails, try to extract questions using regex
+                    questions = re.findall(r'"([^"]+)\?"', questions_str)
+                    if not questions:
+                        # Fallback to splitting by newlines and cleaning up
+                        questions = [q.strip().strip('[]"') for q in questions_str.split('\n') 
+                                   if '?' in q and len(q.strip()) > 10]
+                
+                # Validate and clean questions
+                valid_questions = []
+                for q in questions:
+                    q = q.strip()
+                    if q and q.endswith('?') and len(q) > 10:
+                        valid_questions.append(q)
+                
+                return valid_questions[:4]  # Limit to 4 questions maximum
+                
+            except (KeyError, AttributeError):
                 return []
                 
         except Exception as e:
@@ -207,8 +240,9 @@ Example format: ["Question 1?", "Question 2?", "Question 3?"]
             
             query_category = self.categorize_query(user_query)
             full_response = ""
-            
+            sources = ""
             message_placeholder = placeholder.empty()
+            followup_container = st.container()
             
             for chunk in self.stream_pplx_response(user_query):
                 if chunk["type"] == "error":
@@ -226,44 +260,67 @@ Example format: ["Question 1?", "Question 2?", "Question 3?"]
                 
                 elif chunk["type"] == "complete":
                     full_response = chunk["content"]
+                    sources = chunk["sources"]
                     disclaimer = "\n\nDisclaimer: Always consult your healthcare provider before making any changes to your medication or treatment plan."
-                    
-                    # Generate follow-up questions if this isn't already a follow-up query
-                    followup_questions = []
-                    if not is_followup:
-                        followup_questions = self.generate_followup_questions(user_query, full_response)
                     
                     formatted_response = f"""
                     <div class="chat-message bot-message">
                         <div class="category-tag">{query_category.upper()}</div><br>
-                        <b>Response:</b><br>{full_response}{disclaimer}
+                        <b>Response:</b><br>{full_response}
+                        <div class="sources-section">
+                            <b>Sources:</b><br>{sources}
+                        </div>
+                        <div class="disclaimer">{disclaimer}</div>
                     </div>
                     """
                     
                     message_placeholder.markdown(formatted_response, unsafe_allow_html=True)
                     
-                    # Display follow-up questions if available
-                    if followup_questions:
-                        st.markdown("### Follow-up Questions")
-                        for i, question in enumerate(followup_questions, 1):
-                            if st.button(f"{i}. {question}", key=f"followup_{i}"):
-                                st.markdown("### Follow-up Response")
-                                followup_placeholder = st.empty()
-                                self.process_streaming_query(question, followup_placeholder, is_followup=True)
+                    # Generate follow-up questions only for initial queries
+                    if not is_followup:
+                        with followup_container:
+                            followup_questions = self.generate_followup_questions(user_query, full_response)
+                            if followup_questions:
+                                st.markdown("### Suggested Follow-up Questions")
+                                cols = st.columns(2)  # Create two columns for better layout
+                                for i, question in enumerate(followup_questions):
+                                    col_idx = i % 2
+                                    with cols[col_idx]:
+                                        # Create a unique key for each button
+                                        button_key = f"followup_{user_query[:10]}_{i}"
+                                        if st.button(f"🔍 {question}", key=button_key):
+                                            st.markdown("### Follow-up Response")
+                                            followup_placeholder = st.empty()
+                                            followup_response = self.process_streaming_query(
+                                                question, 
+                                                followup_placeholder, 
+                                                is_followup=True
+                                            )
+                                            # Store follow-up in history
+                                            if followup_response["status"] == "success":
+                                                if 'followup_history' not in st.session_state:
+                                                    st.session_state.followup_history = []
+                                                st.session_state.followup_history.append({
+                                                    "parent_query": user_query,
+                                                    "query": question,
+                                                    "response": followup_response
+                                                })
             
             return {
                 "status": "success",
                 "query_category": query_category,
                 "original_query": user_query,
-                "response": f"{full_response}{disclaimer}"
+                "response": full_response,
+                "sources": sources,
+                "disclaimer": disclaimer
             }
             
         except Exception as e:
+            st.error(f"Error processing query: {str(e)}")
             return {
                 "status": "error",
                 "message": f"Error processing query: {str(e)}"
             }
-
     def categorize_query(self, query: str) -> str:
         """Categorize the user query"""
         categories = {
